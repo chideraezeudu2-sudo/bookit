@@ -9,6 +9,8 @@ app.use((req, res, next) => {
   next();
 });
 
+const webhookRouter = require('./routes/webhook');
+
 // Root route for testing
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Bookit API', time: new Date().toISOString() });
@@ -18,6 +20,9 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
+
+// Routes
+app.use('/webhook', webhookRouter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Bookit running on port ' + PORT));
