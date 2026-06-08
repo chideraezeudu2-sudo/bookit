@@ -13,7 +13,7 @@ const webhookRouter = require('./routes/webhook');
 
 // Root route for testing
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Bookit API', time: new Date().toISOString() });
+  res.json({ status: 'ok', message: 'Bookit API v2', time: new Date().toISOString() });
 });
 
 // Health check
