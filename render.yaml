@@ -7,3 +7,23 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: SUPABASE_URL
+        value: https://mkwbyjejaqwiijdljptw.supabase.co
+      - key: SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1rd2J5amVqYXF3aWlqZGxqcHR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5NDUzNTgsImV4cCI6MjA5NjUyMTM1OH0.sk0IXuVGhXVTGa5uG6tBOptpKZ1IiX7PSuXgHRYf46c
+      - key: BASE_URL
+        value: https://bookit-d4t4.onrender.com
+      - key: PORT
+        value: "3000"
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OWNER_PHONE
+        sync: false
