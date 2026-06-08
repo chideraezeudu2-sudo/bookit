@@ -38,8 +38,13 @@ app.use('/api', signupRouter);
 app.use('/webhook', stripeRouter);
 app.use(healthRouter);
 
-// Start scheduler
-startScheduler();
+// Start scheduler (disabled for testing)
+if (process.env.ENABLE_SCHEDULER === 'true') {
+  startScheduler();
+  console.log('Scheduler started');
+} else {
+  console.log('Scheduler disabled (set ENABLE_SCHEDULER=true to enable)');
+}
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Bookit running on port ' + PORT));
