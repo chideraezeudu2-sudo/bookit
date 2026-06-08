@@ -25,7 +25,7 @@ process.on('unhandledRejection', async (reason) => {
 app.use('/webhook', webhookRouter);
 app.use('/api', signupRouter);
 app.use('/webhook', stripeRouter);
-app.use('/health', healthRouter);
+app.use(healthRouter);
 
 // Start scheduler
 startScheduler();

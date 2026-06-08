@@ -1,12 +1,28 @@
-const twilio = require('twilio');
 const supabase = require('../db/supabase');
 require('dotenv').config();
 
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+let client = null;
+let twilio = null;
+
+function getTwilioClient() {
+  if (!twilio) {
+    twilio = require('twilio');
+  }
+  if (!client && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+    client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    console.log('✅ Twilio client initialized');
+  }
+  return client;
+}
 
 async function sendSMS({ to, from, body, contractorId, leadId }) {
+  const twilioClient = getTwilioClient();
+  if (!twilioClient) {
+    console.warn('SMS send skipped - Twilio not configured');
+    return { sid: 'mock-sid', status: 'skipped' };
+  }
   try {
-    const message = await client.messages.create({ to, from, body });
+    const message = await twilioClient.messages.create({ to, from, body });
 
     // Log outbound message
     await supabase.from('messages').insert({
