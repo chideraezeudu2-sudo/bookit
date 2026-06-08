@@ -3,12 +3,23 @@ require('dotenv').config();
 const express = require('express');
 const app = express();
 
+// Debug logging
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
 const webhookRouter = require('./routes/webhook');
 const signupRouter = require('./routes/signup');
 const stripeRouter = require('./routes/stripe');
 const healthRouter = require('./routes/health');
 const { startScheduler } = require('./services/scheduler');
 const { alertOwner } = require('./utils/monitor');
+
+// Root route for testing
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'Bookit API', time: new Date().toISOString() });
+});
 
 // Error monitoring
 process.on('uncaughtException', async (err) => {
