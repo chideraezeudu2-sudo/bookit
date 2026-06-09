@@ -13,10 +13,10 @@ function getTemplates(style = 'Friendly', assistantName = 'Sarah') {
       askLocation: () => `Got it! What's the address or area where you need the work done?`,
       askUrgency: () => `Thanks! Is this urgent (needs fixing today/tomorrow) or can it wait a few days?`,
       quoteSent: (amount, bookingLink) => `Based on what you described, our estimate is around ${amount}. Ready to book?\n\nPick a time here: ${bookingLink}`,
-      followUp1: (bookingLink) => `Hey, just checking in — still need that job done? Book a time here: ${bookingLink} 😊`,
-      followUp2: (bookingLink) => `Our schedule is filling up — want to lock in a time? ${bookingLink}`,
+      followUp1: () => `Hey, just checking in — still need that job done? Reply YES to book a time or let us know if you need something else 😊`,
+      followUp2: () => `Our schedule is filling up — just following up on that quote. Need anything else? Reply anytime!`,
       followUp3: () => `Last follow up from us! Reply anytime if you'd like to get scheduled.`,
-      bookingReminder: (slot, bizName) => `Just a reminder — your appointment with ${bizName} is tomorrow at ${slot}. See you then! 👷`,
+      bookingReminder: (slot) => `Just a reminder — your appointment is tomorrow at ${slot}. See you then! 👷`,
       reviewRequest: () => `Hope the job went well! 🌟 We'd really appreciate a quick Google review if you have a moment. Thank you!`,
       limitReached: () => `We've reached our message limit for this month. Service resumes next billing cycle.`,
 
@@ -26,11 +26,11 @@ function getTemplates(style = 'Friendly', assistantName = 'Sarah') {
       bookingViaLink: (customerName, customerPhone, issue, slot) => `📅 NEW BOOKING (via booking link)\n\nCustomer: ${customerName}\nPhone: ${customerPhone}\nIssue: ${issue}\nTime: ${slot}\n\nReply DONE when job is complete.`,
 
       // Contractor assistant replies
-      timeBlocked: (bizName, start, end) => `Got it! I've blocked off ${start} to ${end}. No bookings will be scheduled during that time 👍`,
+      timeBlocked: (start, end) => `Got it! I've blocked off ${start} to ${end}. No bookings will be scheduled during that time 👍`,
       statsReply: (leads, booked, pending) => `📊 Your Bookit stats:\n\nLeads this month: ${leads}\nBooked: ${booked}\nPending quotes: ${pending}`,
-      unknownCommand: (bizName) => `Hey! I didn't quite get that. You can text me things like:\n\n"Block Friday afternoon"\n"I'm off next week"\n"How many leads this month?"`,
+      unknownCommand: () => `Hey! I didn't quite get that. You can text me things like:\n\n"Block Friday afternoon"\n"I'm off next week"\n"How many leads this month?"`,
 
-      // Legacy templates (for backward compatibility)
+      // Lead slot selection
       offerSlots: (a, b, c) => `Great! Here are 3 available times:\n\nA) ${a}\nB) ${b}\nC) ${c}\n\nReply A, B, or C to pick one!`,
       awaitingContractor: () => `Perfect! Let me confirm that time with the team and I'll get right back to you 🙌`,
       contractorPrompt: (details, slotA, slotB, slotC) => `📲 NEW BOOKING REQUEST\n\n${details}\n\nSlots offered:\nA) ${slotA}\nB) ${slotB}\nC) ${slotC}\n\nReply YES to confirm or NO if you're unavailable`,
@@ -45,10 +45,10 @@ function getTemplates(style = 'Friendly', assistantName = 'Sarah') {
       askLocation: () => `Thank you. Please provide the address or area where the work is needed.`,
       askUrgency: () => `Understood. Is this urgent or is scheduling flexible?`,
       quoteSent: (amount, bookingLink) => `Based on the information provided, our estimate is ${amount}. To schedule an appointment: ${bookingLink}`,
-      followUp1: (bookingLink) => `Following up on your recent inquiry. To schedule service: ${bookingLink}`,
-      followUp2: (bookingLink) => `A reminder that your quote remains available. Schedule here: ${bookingLink}`,
+      followUp1: () => `Following up on your recent inquiry. Please let us know if you have any questions or would like to proceed.`,
+      followUp2: () => `A reminder that your quote remains available. We look forward to hearing from you.`,
       followUp3: () => `This is our final follow-up. Please contact us when you are ready to proceed.`,
-      bookingReminder: (slot, bizName) => `This is a reminder of your appointment with ${bizName} tomorrow at ${slot}.`,
+      bookingReminder: (slot) => `This is a reminder of your appointment tomorrow at ${slot}.`,
       reviewRequest: () => `We hope your service experience was satisfactory. We would appreciate a Google review at your convenience.`,
       limitReached: () => `Monthly message limit reached. Service resumes on the next billing date.`,
       leadReady: (issue, location, urgency) => `NEW LEAD\n\nIssue: ${issue}\nLocation: ${location}\nUrgency: ${urgency}\n\nPlease reply with your quote amount to send to the customer.`,

@@ -80,6 +80,33 @@ async function handleInbound({ from, to, body }) {
   await routeStep({ contractor, lead, body, from, to });
 }
 
+async function offerBookingSlots({ contractor, lead, from, to, t }) {
+  const slots = generateSlots(contractor);
+
+  const slotA = formatSlot(slots[0]);
+  const slotB = formatSlot(slots[1]);
+  const slotC = formatSlot(slots[2]);
+
+  await supabase.from('bookings').insert({
+    contractor_id: contractor.id,
+    lead_id: lead.id,
+    slot_a: slots[0].toISOString(),
+    slot_b: slots[1].toISOString(),
+    slot_c: slots[2].toISOString(),
+    status: 'pending'
+  });
+
+  await supabase.from('leads').update({ flow_step: 'OFFER_SLOTS' }).eq('id', lead.id);
+
+  await sendSMS({
+    to: from,
+    from: to,
+    body: t.offerSlots(slotA, slotB, slotC),
+    contractorId: contractor.id,
+    leadId: lead.id
+  });
+}
+
 async function routeStep({ contractor, lead, body, from, to }) {
   const t = getTemplates(contractor.message_style);
   const step = lead.flow_step;

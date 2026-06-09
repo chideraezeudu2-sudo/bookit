@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const supabase = require('../db/supabase');
+const { startOnboarding } = require('../services/onboarding');
 
-router.post('/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+router.post('/', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
 
@@ -20,9 +21,11 @@ router.post('/stripe', express.raw({ type: 'application/json' }), async (req, re
     await supabase.from('contractors').update({
       stripe_customer_id: session.customer,
       stripe_subscription_id: session.subscription,
-      subscription_status: 'active',
-      is_active: true
+      subscription_status: 'active'
     }).eq('id', contractorId);
+
+    // Trigger onboarding SMS flow
+    await startOnboarding(contractorId);
   }
 
   if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {

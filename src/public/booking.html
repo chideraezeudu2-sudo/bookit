@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Book Appointment</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .container { background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); max-width: 480px; width: 100%; overflow: hidden; }
+    .header { background: #2563eb; color: white; padding: 24px; text-align: center; }
+    .header h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+    .header p { font-size: 14px; opacity: 0.85; }
+    .content { padding: 24px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 6px; }
+    .form-group input, .form-group textarea { width: 100%; padding: 10px 12px; border: 1.5px solid #e5e7eb; border-radius: 8px; font-size: 15px; transition: border-color 0.2s; }
+    .form-group input:focus, .form-group textarea:focus { outline: none; border-color: #2563eb; }
+    .form-group textarea { resize: vertical; min-height: 80px; }
+    .date-section { margin: 20px 0; }
+    .date-section h3 { font-size: 14px; font-weight: 600; color: #374151; margin-bottom: 12px; }
+    .date-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .date-nav button { background: #f3f4f6; border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; color: #374151; }
+    .date-nav button:hover { background: #e5e7eb; }
+    .date-nav span { font-size: 14px; font-weight: 500; color: #111827; }
+    .day-row { display: flex; gap: 6px; justify-content: center; margin-bottom: 16px; }
+    .day-btn { padding: 8px 6px; border: 1.5px solid #e5e7eb; border-radius: 8px; background: white; font-size: 12px; cursor: pointer; min-width: 52px; text-align: center; }
+    .day-btn:hover:not(:disabled) { border-color: #2563eb; background: #eff6ff; }
+    .day-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .day-btn.active { border-color: #2563eb; background: #eff6ff; }
+    .slots { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .slot-btn { padding: 12px; border: 1.5px solid #e5e7eb; border-radius: 8px; background: white; font-size: 13px; cursor: pointer; text-align: center; transition: all 0.2s; }
+    .slot-btn:hover { border-color: #2563eb; background: #eff6ff; }
+    .slot-btn.selected { border-color: #2563eb; background: #2563eb; color: white; }
+    .slot-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .submit-btn { width: 100%; padding: 14px; background: #2563eb; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+    .submit-btn:hover { background: #1d4ed8; }
+    .submit-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+    .message { padding: 14px; border-radius: 8px; margin-top: 16px; text-align: center; font-size: 14px; display: none; }
+    .message.success { background: #d1fae5; color: #065f46; display: block; }
+    .message.error { background: #fee2e2; color: #991b1b; display: block; }
+    .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid white; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 id="businessName">Loading...</h1>
+      <p id="serviceType">Appointment Booking</p>
+    </div>
+    <div class="content">
+      <form id="bookingForm">
+        <div class="form-group">
+          <label>Your Name</label>
+          <input type="text" id="customerName" placeholder="John Smith" required>
+        </div>
+        <div class="form-group">
+          <label>Phone Number</label>
+          <input type="tel" id="customerPhone" placeholder="+1234567890" required>
+        </div>
+        <div class="form-group">
+          <label>What's the job?</label>
+          <textarea id="issueDescription" placeholder="Describe what you need..." required></textarea>
+        </div>
+        <div class="date-section">
+          <h3>Select a Date</h3>
+          <div class="date-nav">
+            <button type="button" onclick="changeWeek(-1)">← Prev</button>
+            <span id="currentMonth">June 2026</span>
+            <button type="button" onclick="changeWeek(1)">Next →</button>
+          </div>
+          <div id="dayButtons" class="day-row"></div>
+          <div id="slots" class="slots"></div>
+        </div>
+        <input type="hidden" id="selectedSlot">
+        <button type="submit" class="submit-btn" id="submitBtn">Book Appointment</button>
+      </form>
+      <div id="message" class="message"></div>
+    </div>
+  </div>
+  <script>
+    const slug = window.location.pathname.split('/').pop();
+    const API = window.location.origin;
+    let selectedDate = null;
+    let currentWeekOffset = 0;
+    let contractorData = null;
+
+    async function loadContractor() {
+      try {
+        const res = await fetch(API + '/api/booking/' + slug);
+        if (!res.ok) throw new Error('Not found');
+        contractorData = await res.json();
+        document.getElementById('businessName').textContent = contractorData.business_name;
+        document.getElementById('serviceType').textContent = contractorData.service_type;
+        renderDayButtons();
+      } catch (e) {
+        document.getElementById('businessName').textContent = 'Booking Unavailable';
+        document.getElementById('serviceType').textContent = 'This contractor is not accepting bookings';
+      }
+    }
+
+    function renderDayButtons() {
+      const container = document.getElementById('dayButtons');
+      container.innerHTML = '';
+      const base = new Date();
+      base.setDate(base.getDate() + 1 + (currentWeekOffset * 7));
+      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      document.getElementById('currentMonth').textContent = monthNames[base.getMonth()] + ' ' + base.getFullYear();
+      const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const workingDays = contractorData ? contractorData.working_days : ['Mon','Tue','Wed','Thu','Fri'];
+
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(base);
+        d.setDate(base.getDate() + i);
+        const dayName = dayNames[d.getDay()];
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'day-btn';
+        btn.innerHTML = dayName + '<br><span style="font-weight:600;font-size:14px">' + d.getDate() + '</span>';
+        if (!workingDays.includes(dayName)) {
+          btn.disabled = true;
+        } else {
+          btn.onclick = function() { selectDate(d); };
+          if (selectedDate && d.toDateString() === selectedDate.toDateString()) btn.className += ' active';
+        }
+        container.appendChild(btn);
+      }
+    }
+
+    async function selectDate(d) {
+      selectedDate = d;
+      renderDayButtons();
+      document.getElementById('slots').innerHTML = '<p style="text-align:center;color:#6b7280;font-size:13px;grid-column:1/-1;">Loading times...</p>';
+      const dateStr = d.toISOString().split('T')[0];
+      try {
+        const res = await fetch(API + '/api/booking/' + slug + '/slots?date=' + dateStr);
+        const data = await res.json();
+        renderSlots(data.slots || []);
+      } catch (e) {
+        document.getElementById('slots').innerHTML = '<p style="text-align:center;color:#991b1b;font-size:13px;grid-column:1/-1;">Failed to load</p>';
+      }
+    }
+
+    function renderSlots(slots) {
+      const container = document.getElementById('slots');
+      if (!slots.length) { container.innerHTML = '<p style="text-align:center;color:#6b7280;font-size:13px;grid-column:1/-1;">No times available</p>'; return; }
+      container.innerHTML = slots.map(function(s) {
+        const d = new Date(s.value);
+        const time = d.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit'});
+        return '<button type="button" class="slot-btn" onclick="selectSlot(\'' + s.value + '\', this)">' + time + '</button>';
+      }).join('');
+    }
+
+    function selectSlot(value, el) {
+      document.querySelectorAll('.slot-btn').forEach(function(b){ b.classList.remove('selected'); });
+      el.classList.add('selected');
+      document.getElementById('selectedSlot').value = value;
+    }
+
+    function changeWeek(delta) {
+      currentWeekOffset = Math.max(0, currentWeekOffset + delta);
+      selectedDate = null;
+      document.getElementById('slots').innerHTML = '';
+      renderDayButtons();
+    }
+
+    document.getElementById('bookingForm').onsubmit = async function(e) {
+      e.preventDefault();
+      const btn = document.getElementById('submitBtn');
+      const msg = document.getElementById('message');
+      const slot = document.getElementById('selectedSlot').value;
+      if (!slot) { msg.className='message error'; msg.textContent='Please select a time'; return; }
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Booking...';
+      try {
+        const res = await fetch(API + '/api/booking/' + slug + '/confirm', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            customer_name: document.getElementById('customerName').value,
+            customer_phone: document.getElementById('customerPhone').value,
+            issue_description: document.getElementById('issueDescription').value,
+            chosen_slot: slot
+          })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          msg.className = 'message success';
+          msg.textContent = '✓ ' + data.message;
+          btn.style.display = 'none';
+        } else { throw new Error(data.error || 'Failed'); }
+      } catch(e) {
+        msg.className = 'message error';
+        msg.textContent = e.message;
+        btn.disabled = false;
+        btn.textContent = 'Book Appointment';
+      }
+    };
+
+    loadContractor();
+  </script>
+</body>
+</html>
