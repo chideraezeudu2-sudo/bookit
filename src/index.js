@@ -34,6 +34,20 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Bookit API v2', time: new Date().toISOString() });
 });
 
+// Debug endpoint to test Supabase connection
+app.get('/debug/supabase', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('contractors')
+      .select('id, business_name')
+      .eq('id', '11ec789f-2ae4-4249-b95f-d33ceb9d9d52')
+      .single();
+    res.json({ success: true, data, error });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
