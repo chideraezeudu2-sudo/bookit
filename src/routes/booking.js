@@ -154,7 +154,7 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
       }).eq('id', existingLead.id);
       lead = existingLead;
     } else {
-      const { data: newLead } = await supabase.from('leads').insert({
+      const { data: newLead, error: leadError } = await supabase.from('leads').insert({
         contractor_id: contractor.id,
         phone: customer_phone,
         name: customer_name,
@@ -162,16 +162,26 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
         flow_step: 'CONFIRMED',
         status: 'confirmed'
       }).select().single();
+      
+      if (leadError) {
+        console.error('Lead insert error:', leadError);
+        throw new Error('Failed to create lead: ' + leadError.message);
+      }
       lead = newLead;
     }
 
     // Create booking
-    const { data: booking } = await supabase.from('bookings').insert({
+    const { data: booking, error: bookingError } = await supabase.from('bookings').insert({
       contractor_id: contractor.id,
       lead_id: lead.id,
       chosen_slot: new Date(chosen_slot).toISOString(),
       status: 'confirmed'
     }).select().single();
+    
+    if (bookingError) {
+      console.error('Booking insert error:', bookingError);
+      throw new Error('Failed to create booking: ' + bookingError.message);
+    }
 
     // Generate calendar link
     const endTime = new Date(chosen_slot);
