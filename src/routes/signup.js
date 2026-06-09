@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../db/supabase');
 
-router.post('/signup', express.json(), async (req, res) => {
+router.post('/', express.json(), async (req, res) => {
   const {
     business_name,
     owner_phone,
