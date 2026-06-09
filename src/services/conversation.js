@@ -33,7 +33,7 @@ async function handleInbound({ from, to, body }) {
     return;
   }
 
-  // 3. Check message limit
+  // 3. Check message limit (80% warning threshold)
   if (contractor.message_count >= contractor.message_limit) {
     await sendSMS({
       to: from,
@@ -42,6 +42,18 @@ async function handleInbound({ from, to, body }) {
       contractorId: contractor.id
     });
     return;
+  }
+  
+  // 3b. Warning at 80% of limit (1200 for 1500 limit)
+  const warningThreshold = Math.floor(contractor.message_limit * 0.8);
+  if (contractor.message_count === warningThreshold) {
+    const remaining = contractor.message_limit - contractor.message_count;
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: to,
+      body: `Heads up — you've used ${contractor.message_count} of your ${contractor.message_limit} monthly messages. You have about ${remaining} left this month. Reply STATS anytime to check your usage.`,
+      contractorId: contractor.id
+    });
   }
 
   // 4. Find or create lead
