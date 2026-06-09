@@ -4,6 +4,7 @@ const { getTemplates } = require('../utils/messageTemplates');
 const { formatSlot } = require('./booking');
 const { generateSlots } = require('./booking');
 const Groq = require('groq-sdk');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -15,6 +16,12 @@ async function handleContractorReply({ contractor, body, from }) {
   const msg = body.trim();
   const msgLower = msg.toLowerCase();
   const t = getTemplates(contractor.message_style);
+
+  // Check if this is a response to a pending cancel confirmation
+  if (contractor.pending_cancel_booking_id) {
+    const wasPendingCancel = await checkPendingCancel({ contractor, body });
+    if (wasPendingCancel) return;
+  }
 
   // Find the most recent lead that needs contractor attention
   const { data: lead } = await supabase
@@ -110,6 +117,21 @@ async function checkRuleBasedCommands({ contractor, lead, msg, msgLower, body, f
   // Handle block time commands
   if (msgLower.includes('block') || msgLower.includes('off') || msgLower.includes('unavailable')) {
     return await handleBlockTime({ contractor, msg, body, t });
+  }
+
+  // Handle CANCEL command
+  if (msgLower.includes('cancel')) {
+    return await handleCancel({ contractor, msg, body, msgLower, t });
+  }
+
+  // Handle REFUND command
+  if (msgLower.includes('refund')) {
+    return await handleRefund({ contractor, msg, body, msgLower, t });
+  }
+
+  // Handle CONFIRM REFUND
+  if (msgLower === 'confirm refund') {
+    return await handleConfirmRefund({ contractor, t });
   }
 
   return { handled: false };
@@ -431,6 +453,312 @@ async function sendStats({ contractor, t }) {
   });
 
   return { handled: true, response: 'Stats sent' };
+}
+
+// ========== CANCEL COMMAND ==========
+
+async function handleCancel({ contractor, msg, body, msgLower, t }) {
+  // Check if a specific booking is mentioned (e.g., "CANCEL #3" or "CANCEL booking with John")
+  const cancelMatch = msgLower.match(/cancel\s*(?:booking\s*(?:with\s+)?|#?)(\d+)?/i);
+  
+  // Get upcoming bookings for this contractor
+  const now = new Date().toISOString();
+  const { data: upcomingBookings } = await supabase
+    .from('bookings')
+    .select('*, leads(*)')
+    .eq('contractor_id', contractor.id)
+    .eq('status', 'confirmed')
+    .gt('chosen_slot', now)
+    .order('chosen_slot', { ascending: true })
+    .limit(5);
+
+  if (!upcomingBookings || upcomingBookings.length === 0) {
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: contractor.twilio_number,
+      body: "You don't have any upcoming bookings to cancel.",
+      contractorId: contractor.id
+    });
+    return { handled: true, response: 'No upcoming bookings' };
+  }
+
+  // If only one booking, skip the list
+  if (upcomingBookings.length === 1) {
+    const booking = upcomingBookings[0];
+    const slotStr = formatSlot(new Date(booking.chosen_slot));
+    const customerName = booking.leads?.name || 'the customer';
+    
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: contractor.twilio_number,
+      body: `Cancel ${customerName}'s booking on ${slotStr}? Reply YES to confirm.`,
+      contractorId: contractor.id
+    });
+    
+    // Store pending cancellation in contractor metadata
+    await supabase.from('contractors').update({
+      pending_cancel_booking_id: booking.id
+    }).eq('id', contractor.id);
+    
+    return { handled: true, response: 'Single booking cancel confirmation sent' };
+  }
+
+  // If no specific number mentioned, show the list
+  if (!cancelMatch || !cancelMatch[1]) {
+    let listMsg = "Which booking do you want to cancel? Here are your upcoming bookings:\n";
+    upcomingBookings.forEach((b, i) => {
+      const slotStr = formatSlot(new Date(b.chosen_slot));
+      const customerName = b.leads?.name || 'Unknown';
+      listMsg += `${i + 1}. ${customerName} — ${slotStr}\n`;
+    });
+    listMsg += "Reply with the number to cancel.";
+    
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: contractor.twilio_number,
+      body: listMsg,
+      contractorId: contractor.id
+    });
+    return { handled: true, response: 'Booking list sent' };
+  }
+
+  // If they replied with a number (1, 2, 3, etc.)
+  const num = parseInt(cancelMatch[1]);
+  if (num >= 1 && num <= upcomingBookings.length) {
+    const booking = upcomingBookings[num - 1];
+    return await executeCancel({ contractor, booking, t });
+  }
+
+  // Fallback: try to find by name
+  const nameMatch = body.match(/cancel\s+(?:booking\s+)?(?:with\s+)?(.+)/i);
+  if (nameMatch) {
+    const searchName = nameMatch[1].trim().toLowerCase();
+    const matchedBooking = upcomingBookings.find(b => 
+      b.leads?.name?.toLowerCase().includes(searchName)
+    );
+    if (matchedBooking) {
+      return await executeCancel({ contractor, booking: matchedBooking, t });
+    }
+  }
+
+  // Invalid number - show list again
+  let listMsg = "Invalid selection. Here are your upcoming bookings:\n";
+  upcomingBookings.forEach((b, i) => {
+    const slotStr = formatSlot(new Date(b.chosen_slot));
+    const customerName = b.leads?.name || 'Unknown';
+    listMsg += `${i + 1}. ${customerName} — ${slotStr}\n`;
+  });
+  listMsg += "Reply with the number to cancel.";
+  
+  await sendSMS({
+    to: contractor.owner_phone,
+    from: contractor.twilio_number,
+    body: listMsg,
+    contractorId: contractor.id
+  });
+  return { handled: true, response: 'Invalid number, list resent' };
+}
+
+async function executeCancel({ contractor, booking, t }) {
+  const slotStr = formatSlot(new Date(booking.chosen_slot));
+  const customerName = booking.leads?.name || 'the customer';
+  const customerPhone = booking.leads?.phone;
+  const assistantName = contractor.assistant_name || 'Your assistant';
+
+  // Cancel the booking
+  await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', booking.id);
+
+  // Notify customer
+  if (customerPhone) {
+    await sendSMS({
+      to: customerPhone,
+      from: contractor.twilio_number,
+      body: `Hi ${customerName}, unfortunately ${assistantName} from ${contractor.business_name} needs to cancel your appointment on ${slotStr}. We're sorry for the inconvenience — please call or text to reschedule.`,
+      contractorId: contractor.id
+    });
+  }
+
+  // Confirm to contractor
+  await sendSMS({
+    to: contractor.owner_phone,
+    from: contractor.twilio_number,
+    body: `Done — ${customerName}'s booking on ${slotStr} has been cancelled and they've been notified.`,
+    contractorId: contractor.id
+  });
+
+  return { handled: true, response: 'Booking cancelled' };
+}
+
+// ========== REFUND COMMAND ==========
+
+async function handleRefund({ contractor, msg, body, msgLower, t }) {
+  // Check if they already have a pending refund confirmation
+  if (contractor.pending_refund_confirm) {
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: contractor.twilio_number,
+      body: "You already have a refund confirmation pending. Reply CONFIRM REFUND to proceed or ignore this message.",
+      contractorId: contractor.id
+    });
+    return { handled: true, response: 'Pending refund already exists' };
+  }
+
+  // Check if contractor has a subscription
+  if (!contractor.stripe_subscription_id) {
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: contractor.twilio_number,
+      body: "We couldn't find an active subscription on your account. If you think this is an error, reply HELP.",
+      contractorId: contractor.id
+    });
+    return { handled: true, response: 'No subscription found' };
+  }
+
+  // Set pending flag and ask for confirmation
+  await supabase.from('contractors').update({
+    pending_refund_confirm: true,
+    pending_refund_at: new Date().toISOString()
+  }).eq('id', contractor.id);
+
+  await sendSMS({
+    to: contractor.owner_phone,
+    from: contractor.twilio_number,
+    body: "Are you sure you want to cancel your Bookit subscription and request a refund? This will deactivate your account at the end of today. Reply CONFIRM REFUND to proceed.",
+    contractorId: contractor.id
+  });
+
+  return { handled: true, response: 'Refund confirmation sent' };
+}
+
+async function handleConfirmRefund({ contractor, t }) {
+  // Verify pending flag is set
+  if (!contractor.pending_refund_confirm) {
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: contractor.twilio_number,
+      body: "No pending refund found. If you want to request a refund, text REFUND first.",
+      contractorId: contractor.id
+    });
+    return { handled: true, response: 'No pending refund' };
+  }
+
+  // Clear the pending flag
+  await supabase.from('contractors').update({
+    pending_refund_confirm: false,
+    pending_refund_at: null
+  }).eq('id', contractor.id);
+
+  // Cancel subscription via Stripe
+  try {
+    if (contractor.stripe_subscription_id) {
+      await stripe.subscriptions.cancel(contractor.stripe_subscription_id);
+    }
+  } catch (subErr) {
+    console.error('Stripe subscription cancel error:', subErr.message);
+  }
+
+  // Issue refund for most recent charge
+  try {
+    if (contractor.stripe_customer_id) {
+      const invoices = await stripe.invoices.list({ customer: contractor.stripe_customer_id, limit: 1 });
+      const latestCharge = invoices.data[0]?.charge;
+      if (latestCharge) {
+        await stripe.refunds.create({ charge: latestCharge });
+      }
+    }
+  } catch (refundErr) {
+    console.error('Stripe refund error:', refundErr.message);
+    // Send alert to admin
+    if (process.env.ADMIN_PHONE) {
+      await sendSMS({
+        to: process.env.ADMIN_PHONE,
+        from: contractor.twilio_number,
+        body: `ALERT: Refund failed for contractor ${contractor.id}. Stripe error: ${refundErr.message}. Manual intervention needed.`,
+        contractorId: contractor.id
+      });
+    }
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: contractor.twilio_number,
+      body: "Your subscription has been cancelled but there was an issue processing your refund automatically. We'll handle it manually within 24 hours.",
+      contractorId: contractor.id
+    });
+    return { handled: true, response: 'Refund partially failed, admin notified' };
+  }
+
+  // Update contractor status
+  await supabase.from('contractors').update({
+    subscription_status: 'cancelled',
+    is_active: false,
+    status: 'cancelled'
+  }).eq('id', contractor.id);
+
+  // Send final message
+  await sendSMS({
+    to: contractor.owner_phone,
+    from: contractor.twilio_number,
+    body: "Your Bookit subscription has been cancelled and a full refund of $550 has been issued. It may take 5–10 business days to appear on your statement. Thanks for trying Bookit — you can reactivate anytime at bookit.app",
+    contractorId: contractor.id
+  });
+
+  return { handled: true, response: 'Refund completed' };
+}
+
+// Check if contractor is responding to a cancel confirmation
+async function checkPendingCancel({ contractor, body }) {
+  if (!contractor.pending_cancel_booking_id) return false;
+  
+  const msgLower = body.trim().toLowerCase();
+  if (msgLower === 'yes' || msgLower === 'confirm' || msgLower === 'y') {
+    const { data: booking } = await supabase
+      .from('bookings')
+      .select('*, leads(*)')
+      .eq('id', contractor.pending_cancel_booking_id)
+      .single();
+    
+    if (booking) {
+      const slotStr = formatSlot(new Date(booking.chosen_slot));
+      const customerName = booking.leads?.name || 'the customer';
+      
+      // Cancel the booking
+      await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', booking.id);
+      
+      // Notify customer
+      if (booking.leads?.phone) {
+        const t = getTemplates(contractor.message_style || 'Friendly');
+        const assistantName = contractor.assistant_name || 'Your assistant';
+        await sendSMS({
+          to: booking.leads.phone,
+          from: contractor.twilio_number,
+          body: `Hi ${customerName}, unfortunately ${assistantName} from ${contractor.business_name} needs to cancel your appointment on ${slotStr}. We're sorry for the inconvenience — please call or text to reschedule.`,
+          contractorId: contractor.id
+        });
+      }
+      
+      // Confirm to contractor
+      await sendSMS({
+        to: contractor.owner_phone,
+        from: contractor.twilio_number,
+        body: `Done — ${customerName}'s booking on ${slotStr} has been cancelled and they've been notified.`,
+        contractorId: contractor.id
+      });
+    }
+    
+    // Clear pending cancel
+    await supabase.from('contractors').update({ pending_cancel_booking_id: null }).eq('id', contractor.id);
+    return true;
+  } else if (msgLower === 'no' || msgLower === 'cancel') {
+    await supabase.from('contractors').update({ pending_cancel_booking_id: null }).eq('id', contractor.id);
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: contractor.twilio_number,
+      body: "Okay, cancellation aborted.",
+      contractorId: contractor.id
+    });
+    return true;
+  }
+  
+  return false;
 }
 
 module.exports = { handleContractorReply };
