@@ -188,28 +188,36 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
       location: 'Customer location (contact for address)'
     });
 
-    // Send confirmation to customer
+    // Send confirmation to customer (non-blocking)
     const slotFormatted = new Date(chosen_slot).toLocaleString('en-US', {
       weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit'
     });
 
-    await sendSMS({
-      to: customer_phone,
-      from: contractor.twilio_number,
-      body: `✅ Your appointment is confirmed!\n\n${contractor.business_name}\n${slotFormatted}\n\nWe'll send a reminder the day before. See you then!`,
-      contractorId: contractor.id,
-      leadId: lead.id
-    });
+    try {
+      await sendSMS({
+        to: customer_phone,
+        from: contractor.twilio_number,
+        body: `✅ Your appointment is confirmed!\n\n${contractor.business_name}\n${slotFormatted}\n\nWe'll send a reminder the day before. See you then!`,
+        contractorId: contractor.id,
+        leadId: lead.id
+      });
+    } catch (smsErr) {
+      console.error('Failed to send confirmation SMS:', smsErr.message);
+    }
 
-    // Notify contractor
+    // Notify contractor (non-blocking)
     const notificationMsg = `📅 NEW BOOKING (via page)\n\nCustomer: ${customer_name}\nPhone: ${customer_phone}\nService: ${issue_description}\nTime: ${slotFormatted}`;
 
-    await sendSMS({
-      to: contractor.owner_phone,
-      from: contractor.twilio_number,
-      body: notificationMsg,
-      contractorId: contractor.id
-    });
+    try {
+      await sendSMS({
+        to: contractor.owner_phone,
+        from: contractor.twilio_number,
+        body: notificationMsg,
+        contractorId: contractor.id
+      });
+    } catch (smsErr) {
+      console.error('Failed to send contractor notification SMS:', smsErr.message);
+    }
 
     // Schedule day-before reminder
     const reminderTime = new Date(chosen_slot);
