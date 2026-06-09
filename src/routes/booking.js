@@ -1,0 +1,203 @@
+const express = require('express');
+const router = express.Router();
+const supabase = require('../db/supabase');
+const { getAvailableSlotsForDate } = require('../services/booking');
+const { generateGoogleCalendarLink } = require('../services/calendarLink');
+const { sendSMS } = require('../services/sms');
+const { getTemplates } = require('../utils/messageTemplates');
+
+/**
+ * GET /api/booking/:slug
+ * Get contractor info for the public booking page
+ */
+router.get('/booking/:slug', async (req, res) => {
+  const { slug } = req.params;
+
+  try {
+    const { data: contractor, error } = await supabase
+      .from('contractors')
+      .select('id, business_name, service_type, working_days, start_time, end_time, message_style')
+      .or(`booking_slug.eq.${slug},id.eq.${slug}`)
+      .eq('is_active', true)
+      .single();
+
+    if (error || !contractor) {
+      return res.status(404).json({ error: 'Contractor not found' });
+    }
+
+    res.json({
+      business_name: contractor.business_name,
+      service_type: contractor.service_type,
+      working_days: contractor.working_days,
+      start_time: contractor.start_time,
+      end_time: contractor.end_time,
+      message_style: contractor.message_style
+    });
+  } catch (err) {
+    console.error('Booking page error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/booking/:slug/slots
+ * Get available time slots for a specific date
+ * Query params: date=YYYY-MM-DD
+ */
+router.get('/booking/:slug/slots', async (req, res) => {
+  const { slug } = req.params;
+  const { date } = req.query;
+
+  if (!date) {
+    return res.status(400).json({ error: 'Date is required (format: YYYY-MM-DD)' });
+  }
+
+  try {
+    const { data: contractor } = await supabase
+      .from('contractors')
+      .select('*')
+      .or(`booking_slug.eq.${slug},id.eq.${slug}`)
+      .eq('is_active', true)
+      .single();
+
+    if (!contractor) {
+      return res.status(404).json({ error: 'Contractor not found' });
+    }
+
+    const slots = await getAvailableSlotsForDate(contractor, date);
+
+    res.json({ date, slots });
+  } catch (err) {
+    console.error('Slots error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/booking/:slug/confirm
+ * Confirm a booking from the public page
+ * Body: { customer_name, customer_phone, issue_description, chosen_slot }
+ */
+router.post('/booking/:slug/confirm', express.json(), async (req, res) => {
+  const { slug } = req.params;
+  const { customer_name, customer_phone, issue_description, chosen_slot } = req.body;
+
+  if (!customer_name || !customer_phone || !chosen_slot) {
+    return res.status(400).json({ error: 'customer_name, customer_phone, and chosen_slot are required' });
+  }
+
+  try {
+    const { data: contractor } = await supabase
+      .from('contractors')
+      .select('*')
+      .or(`booking_slug.eq.${slug},id.eq.${slug}`)
+      .eq('is_active', true)
+      .single();
+
+    if (!contractor) {
+      return res.status(404).json({ error: 'Contractor not found' });
+    }
+
+    const t = getTemplates(contractor.message_style || 'Friendly');
+
+    // Create or find lead
+    const { data: existingLead } = await supabase
+      .from('leads')
+      .select('id')
+      .eq('phone', customer_phone)
+      .eq('contractor_id', contractor.id)
+      .single();
+
+    let lead;
+    if (existingLead) {
+      await supabase.from('leads').update({
+        customer_name,
+        issue_description,
+        flow_step: 'CONFIRMED',
+        status: 'confirmed'
+      }).eq('id', existingLead.id);
+      lead = existingLead;
+    } else {
+      const { data: newLead } = await supabase.from('leads').insert({
+        contractor_id: contractor.id,
+        phone: customer_phone,
+        customer_name,
+        issue_description,
+        flow_step: 'CONFIRMED',
+        status: 'confirmed',
+        source: 'booking_page'
+      }).select().single();
+      lead = newLead;
+    }
+
+    // Create booking
+    const { data: booking } = await supabase.from('bookings').insert({
+      contractor_id: contractor.id,
+      lead_id: lead.id,
+      chosen_slot: new Date(chosen_slot).toISOString(),
+      status: 'confirmed',
+      contractor_confirmed: true,
+      booked_via_page: true
+    }).select().single();
+
+    // Generate calendar link
+    const endTime = new Date(chosen_slot);
+    endTime.setHours(endTime.getHours() + 2); // 2 hour default job duration
+
+    const calendarLink = generateGoogleCalendarLink({
+      title: `${contractor.service_type || 'Service'} with ${contractor.business_name}`,
+      startTime: chosen_slot,
+      endTime: endTime.toISOString(),
+      description: `Customer: ${customer_name}\nPhone: ${customer_phone}\nIssue: ${issue_description}`,
+      location: 'Customer location (contact for address)'
+    });
+
+    // Send confirmation to customer
+    const slotFormatted = new Date(chosen_slot).toLocaleString('en-US', {
+      weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit'
+    });
+
+    await sendSMS({
+      to: customer_phone,
+      from: contractor.twilio_number,
+      body: `✅ Your appointment is confirmed!\n\n${contractor.business_name}\n${slotFormatted}\n\nWe'll send a reminder the day before. See you then!`,
+      contractorId: contractor.id,
+      leadId: lead.id
+    });
+
+    // Notify contractor
+    const notificationMsg = `📅 NEW BOOKING (via page)\n\nCustomer: ${customer_name}\nPhone: ${customer_phone}\nService: ${issue_description}\nTime: ${slotFormatted}`;
+
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: contractor.twilio_number,
+      body: notificationMsg,
+      contractorId: contractor.id
+    });
+
+    // Schedule day-before reminder
+    const reminderTime = new Date(chosen_slot);
+    reminderTime.setDate(reminderTime.getDate() - 1);
+    reminderTime.setHours(9, 0, 0, 0);
+
+    await supabase.from('scheduled_jobs').insert({
+      job_type: 'booking_reminder',
+      lead_id: lead.id,
+      booking_id: booking.id,
+      contractor_id: contractor.id,
+      scheduled_for: reminderTime.toISOString()
+    });
+
+    res.json({
+      success: true,
+      booking_id: booking.id,
+      calendar_link: calendarLink,
+      message: `Appointment confirmed for ${slotFormatted}`
+    });
+  } catch (err) {
+    console.error('Booking confirm error:', err);
+    res.status(500).json({ error: 'Failed to confirm booking' });
+  }
+});
+
+module.exports = router;

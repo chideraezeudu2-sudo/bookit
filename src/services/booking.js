@@ -1,4 +1,4 @@
-const { addDays, format } = require('date-fns');
+const { addDays, format, parseISO, isBefore, isAfter, startOfDay, endOfDay } = require('date-fns');
 
 function parseHour(timeStr) {
   const lower = (timeStr || '9am').toLowerCase();
@@ -49,4 +49,88 @@ function formatSlot(date) {
   return format(date, "EEEE, MMM d 'at' h:mmaaa");
 }
 
-module.exports = { generateSlots, formatSlot };
+/**
+ * Get available time slots for a specific date
+ * Respects blocked_times and confirmed bookings
+ */
+async function getAvailableSlotsForDate(contractor, dateStr) {
+  const supabase = require('../db/supabase');
+  
+  const targetDate = parseISO(dateStr);
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const targetDayName = dayNames[targetDate.getDay()];
+  
+  // Check if contractor works on this day
+  const workingDays = contractor.working_days || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+  if (!workingDays.includes(targetDayName)) {
+    return [];
+  }
+
+  const startHour = parseHour(contractor.start_time);
+  const endHour = parseHour(contractor.end_time);
+  
+  // Generate all possible slots (every 2 hours)
+  const slots = [];
+  for (let hour = startHour; hour < endHour; hour += 2) {
+    const slotTime = new Date(targetDate);
+    slotTime.setHours(hour, 0, 0, 0);
+    slots.push(slotTime);
+  }
+
+  // Get blocked times for this contractor
+  const dayStart = startOfDay(targetDate);
+  const dayEnd = endOfDay(targetDate);
+  
+  const { data: blockedTimes } = await supabase
+    .from('blocked_times')
+    .select('start_time, end_time')
+    .eq('contractor_id', contractor.id)
+    .or(`start_time.lte.${dayEnd.toISOString()},end_time.gte.${dayStart.toISOString()}`);
+
+  // Get confirmed bookings for this date
+  const { data: bookings } = await supabase
+    .from('bookings')
+    .select('chosen_slot')
+    .eq('contractor_id', contractor.id)
+    .eq('status', 'confirmed')
+    .gte('chosen_slot', dayStart.toISOString())
+    .lte('chosen_slot', dayEnd.toISOString());
+
+  // Filter out blocked and booked slots
+  const availableSlots = slots.filter(slot => {
+    // Check if slot is in the past
+    if (isBefore(slot, new Date())) {
+      return false;
+    }
+
+    // Check blocked times
+    if (blockedTimes) {
+      for (const block of blockedTimes) {
+        const blockStart = parseISO(block.start_time);
+        const blockEnd = parseISO(block.end_time);
+        if (isAfter(slot, blockStart) && isBefore(slot, blockEnd)) {
+          return false;
+        }
+      }
+    }
+
+    // Check existing bookings
+    if (bookings) {
+      for (const booking of bookings) {
+        const bookedSlot = parseISO(booking.chosen_slot);
+        if (Math.abs(slot.getTime() - bookedSlot.getTime()) < 2 * 60 * 60 * 1000) { // Within 2 hours
+          return false;
+        }
+      }
+    }
+
+    return true;
+  });
+
+  return availableSlots.map(slot => ({
+    value: slot.toISOString(),
+    display: formatSlot(slot)
+  }));
+}
+
+module.exports = { generateSlots, formatSlot, getAvailableSlotsForDate };

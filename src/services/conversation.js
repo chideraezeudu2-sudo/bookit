@@ -3,6 +3,8 @@ const { sendSMS } = require('./sms');
 const { interpretMessage } = require('./groq');
 const { getTemplates } = require('../utils/messageTemplates');
 const { generateSlots, formatSlot } = require('./booking');
+const { handleContractorReply } = require('./contractorSMS');
+const { handleOnboardingReply } = require('./onboarding');
 
 async function handleInbound({ from, to, body }) {
   console.log('Inbound SMS from', from, 'to', to, ':', body);
@@ -21,7 +23,13 @@ async function handleInbound({ from, to, body }) {
 
   // 2. Check if this is the CONTRACTOR replying (their own phone number)
   if (from === contractor.owner_phone) {
-    await handleContractorReply({ contractor, body });
+    // Check if contractor is still in onboarding
+    if (contractor.onboarding_step && contractor.onboarding_step !== 'COMPLETED') {
+      await handleOnboardingReply({ contractor, body });
+      return;
+    }
+    // Handle contractor commands (YES/NO, quote, DONE, block time, stats)
+    await handleContractorReply({ contractor, body, from });
     return;
   }
 
@@ -176,130 +184,6 @@ async function routeStep({ contractor, lead, body, from, to }) {
       console.log('Unknown step:', step);
       break;
   }
-}
-
-async function handleContractorReply({ contractor, body }) {
-  const msg = body.trim().toLowerCase();
-
-  const { data: lead } = await supabase
-    .from('leads')
-    .select('*')
-    .eq('contractor_id', contractor.id)
-    .in('flow_step', ['AWAITING_QUOTE', 'AWAITING_CONTRACTOR'])
-    .order('last_message_at', { ascending: false })
-    .limit(1)
-    .single();
-
-  if (!lead) return;
-
-  const t = getTemplates(contractor.message_style);
-
-  if (lead.flow_step === 'AWAITING_QUOTE') {
-    const quoteMatch = body.match(/\$?\d+/);
-    if (quoteMatch) {
-      const amount = quoteMatch[0].startsWith('$') ? quoteMatch[0] : `$${quoteMatch[0]}`;
-      await supabase.from('leads').update({
-        quote_amount: amount,
-        quote_sent_at: new Date().toISOString(),
-        flow_step: 'QUOTE_SENT',
-        status: 'quoted'
-      }).eq('id', lead.id);
-
-      await sendSMS({
-        to: lead.phone,
-        from: contractor.twilio_number,
-        body: t.quoteSent(amount),
-        contractorId: contractor.id,
-        leadId: lead.id
-      });
-
-      // Schedule 3 follow-ups if no response
-      const now = new Date();
-      await supabase.from('scheduled_jobs').insert([
-        { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 24*60*60*1000).toISOString() },
-        { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 3*24*60*60*1000).toISOString() },
-        { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 7*24*60*60*1000).toISOString() },
-      ]);
-    }
-    return;
-  }
-
-  if (lead.flow_step === 'AWAITING_CONTRACTOR') {
-    const { data: booking } = await supabase
-      .from('bookings')
-      .select('*')
-      .eq('lead_id', lead.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (msg === 'yes' || msg.includes('yes') || msg.includes('confirm')) {
-      await supabase.from('bookings').update({ contractor_confirmed: true, status: 'confirmed' }).eq('id', booking.id);
-      await supabase.from('leads').update({ flow_step: 'CONFIRMED', status: 'confirmed' }).eq('id', lead.id);
-
-      const slotStr = formatSlot(new Date(booking.chosen_slot));
-      await sendSMS({
-        to: lead.phone,
-        from: contractor.twilio_number,
-        body: t.bookingConfirmed(slotStr),
-        contractorId: contractor.id,
-        leadId: lead.id
-      });
-
-      // Schedule reminder day before
-      const reminderTime = new Date(booking.chosen_slot);
-      reminderTime.setDate(reminderTime.getDate() - 1);
-      reminderTime.setHours(9, 0, 0, 0);
-      await supabase.from('scheduled_jobs').insert({
-        job_type: 'booking_reminder',
-        lead_id: lead.id,
-        booking_id: booking.id,
-        contractor_id: contractor.id,
-        scheduled_for: reminderTime.toISOString()
-      });
-
-    } else if (msg === 'no' || msg.includes('no') || msg.includes('busy')) {
-      const slots = generateSlots(contractor);
-      await supabase.from('bookings').insert({
-        contractor_id: contractor.id,
-        lead_id: lead.id,
-        slot_a: slots[0].toISOString(),
-        slot_b: slots[1].toISOString(),
-        slot_c: slots[2].toISOString(),
-        status: 'pending'
-      });
-      await supabase.from('leads').update({ flow_step: 'OFFER_SLOTS' }).eq('id', lead.id);
-
-      await sendSMS({
-        to: lead.phone,
-        from: contractor.twilio_number,
-        body: t.newSlotsOffer(formatSlot(slots[0]), formatSlot(slots[1]), formatSlot(slots[2])),
-        contractorId: contractor.id,
-        leadId: lead.id
-      });
-    }
-  }
-}
-
-async function offerBookingSlots({ contractor, lead, from, to, t }) {
-  const slots = generateSlots(contractor);
-  await supabase.from('bookings').insert({
-    contractor_id: contractor.id,
-    lead_id: lead.id,
-    slot_a: slots[0].toISOString(),
-    slot_b: slots[1].toISOString(),
-    slot_c: slots[2].toISOString(),
-    status: 'pending'
-  });
-  await supabase.from('leads').update({ flow_step: 'OFFER_SLOTS' }).eq('id', lead.id);
-
-  await sendSMS({
-    to: from,
-    from: to,
-    body: t.offerSlots(formatSlot(slots[0]), formatSlot(slots[1]), formatSlot(slots[2])),
-    contractorId: contractor.id,
-    leadId: lead.id
-  });
 }
 
 module.exports = { handleInbound };
