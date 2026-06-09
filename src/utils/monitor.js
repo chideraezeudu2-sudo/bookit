@@ -1,13 +1,16 @@
 const { sendSMS } = require('../services/sms');
 
 async function alertOwner(errorMessage) {
+  if (!process.env.OWNER_PHONE || !process.env.TWILIO_PHONE_NUMBER) {
+    console.log('Owner phone not configured, skipping alert:', errorMessage);
+    return;
+  }
+  
   try {
-    if (!process.env.OWNER_PHONE || !process.env.TWILIO_PHONE_NUMBER) return;
-    
     await sendSMS({
       to: process.env.OWNER_PHONE,
       from: process.env.TWILIO_PHONE_NUMBER,
-      body: '🚨 BOOKIT ERROR\n\n' + errorMessage + '\n\nCheck logs immediately.',
+      body: `🚨 BOOKIT ERROR\n\n${errorMessage}\n\nCheck Render logs immediately.`,
       contractorId: null
     });
   } catch (err) {
@@ -17,12 +20,12 @@ async function alertOwner(errorMessage) {
 
 process.on('uncaughtException', async (err) => {
   console.error('Uncaught exception:', err);
-  await alertOwner('Uncaught exception: ' + err.message);
+  await alertOwner(`Uncaught exception: ${err.message}`);
 });
 
 process.on('unhandledRejection', async (reason) => {
   console.error('Unhandled rejection:', reason);
-  await alertOwner('Unhandled rejection: ' + reason);
+  await alertOwner(`Unhandled rejection: ${String(reason)}`);
 });
 
 module.exports = { alertOwner };

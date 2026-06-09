@@ -1,7 +1,11 @@
 require('dotenv').config();
+require('./utils/monitor');
 
 const express = require('express');
+const cors = require('cors');
 const app = express();
+
+app.use(cors());
 
 // Simple debug logging
 app.use((req, res, next) => {
@@ -23,7 +27,7 @@ const stripeRouter = require('./routes/stripe');
 app.use('/webhook', webhookRouter);
 app.use('/webhook', stripeRouter); // Stripe webhook at /webhook/stripe
 app.use('/api', signupRouter);
-app.use('/api', bookingRouter);
+app.use('/api/booking', bookingRouter);
 
 // Root route for testing
 app.get('/', (req, res) => {
@@ -38,16 +42,6 @@ app.get('/health', (req, res) => {
 // Start the scheduler
 const { startScheduler } = require('./services/scheduler');
 startScheduler();
-
-// Error handling
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-  // In production, would alert via SMS
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Bookit running on port ' + PORT));
