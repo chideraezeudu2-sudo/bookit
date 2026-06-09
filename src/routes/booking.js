@@ -147,7 +147,7 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
     let lead;
     if (existingLead) {
       await supabase.from('leads').update({
-        customer_name,
+        name: customer_name,
         issue_description,
         flow_step: 'CONFIRMED',
         status: 'confirmed'
@@ -157,11 +157,10 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
       const { data: newLead } = await supabase.from('leads').insert({
         contractor_id: contractor.id,
         phone: customer_phone,
-        customer_name,
+        name: customer_name,
         issue_description,
         flow_step: 'CONFIRMED',
-        status: 'confirmed',
-        source: 'booking_page'
+        status: 'confirmed'
       }).select().single();
       lead = newLead;
     }
@@ -171,9 +170,7 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
       contractor_id: contractor.id,
       lead_id: lead.id,
       chosen_slot: new Date(chosen_slot).toISOString(),
-      status: 'confirmed',
-      contractor_confirmed: true,
-      booked_via_page: true
+      status: 'confirmed'
     }).select().single();
 
     // Generate calendar link
