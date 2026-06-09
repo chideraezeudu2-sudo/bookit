@@ -240,7 +240,7 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
     });
   } catch (err) {
     console.error('Booking confirm error:', err);
-    res.status(500).json({ error: 'Failed to confirm booking' });
+    res.status(500).json({ error: 'Failed to confirm booking', details: err.message });
   }
 });
 
