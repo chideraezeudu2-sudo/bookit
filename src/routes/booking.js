@@ -14,15 +14,27 @@ router.get('/:slug', async (req, res) => {
   const { slug } = req.params;
 
   try {
-    const { data: contractor, error } = await supabase
+    // First try to find by id (for testing)
+    let { data: contractor, error } = await supabase
       .from('contractors')
       .select('id, business_name, service_type, working_days, start_time, end_time, message_style')
-      .or(`booking_slug.eq.${slug},id.eq.${slug}`)
+      .eq('id', slug)
       .eq('is_active', true)
       .single();
 
+    // If not found, try by booking_slug
+    if (!contractor) {
+      const { data: bySlug } = await supabase
+        .from('contractors')
+        .select('id, business_name, service_type, working_days, start_time, end_time, message_style')
+        .eq('booking_slug', slug)
+        .eq('is_active', true)
+        .single();
+      contractor = bySlug;
+    }
+
     if (error || !contractor) {
-      return res.status(404).json({ error: 'Contractor not found' });
+      return res.status(404).json({ error: 'Contractor not found', slug });
     }
 
     res.json({
@@ -53,12 +65,24 @@ router.get('/:slug/slots', async (req, res) => {
   }
 
   try {
-    const { data: contractor } = await supabase
+    // First try by id
+    let { data: contractor } = await supabase
       .from('contractors')
       .select('*')
-      .or(`booking_slug.eq.${slug},id.eq.${slug}`)
+      .eq('id', slug)
       .eq('is_active', true)
       .single();
+
+    // If not found, try by booking_slug
+    if (!contractor) {
+      const { data: bySlug } = await supabase
+        .from('contractors')
+        .select('*')
+        .eq('booking_slug', slug)
+        .eq('is_active', true)
+        .single();
+      contractor = bySlug;
+    }
 
     if (!contractor) {
       return res.status(404).json({ error: 'Contractor not found' });
@@ -87,12 +111,24 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
   }
 
   try {
-    const { data: contractor } = await supabase
+    // First try by id
+    let { data: contractor } = await supabase
       .from('contractors')
       .select('*')
-      .or(`booking_slug.eq.${slug},id.eq.${slug}`)
+      .eq('id', slug)
       .eq('is_active', true)
       .single();
+
+    // If not found, try by booking_slug
+    if (!contractor) {
+      const { data: bySlug } = await supabase
+        .from('contractors')
+        .select('*')
+        .eq('booking_slug', slug)
+        .eq('is_active', true)
+        .single();
+      contractor = bySlug;
+    }
 
     if (!contractor) {
       return res.status(404).json({ error: 'Contractor not found' });
