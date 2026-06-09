@@ -22,6 +22,7 @@ const webhookRouter = require('./routes/webhook');
 const signupRouter = require('./routes/signup');
 const bookingRouter = require('./routes/booking');
 const stripeRouter = require('./routes/stripe');
+const supabase = require('./db/supabase');
 
 // Mount routes
 app.use('/webhook', webhookRouter);
