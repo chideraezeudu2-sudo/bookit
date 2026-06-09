@@ -38,14 +38,19 @@ app.get('/', (req, res) => {
 // Debug endpoint to test Supabase connection
 app.get('/debug/supabase', async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { createClient } = require('@supabase/supabase-js');
+    const supa = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+    const { data, error } = await supa
       .from('contractors')
       .select('id, business_name')
       .eq('id', '11ec789f-2ae4-4249-b95f-d33ceb9d9d52')
       .single();
     res.json({ success: true, data, error });
   } catch (err) {
-    res.json({ success: false, error: err.message });
+    res.json({ success: false, error: err.message, env: { url: !!process.env.SUPABASE_URL, key: !!process.env.SUPABASE_SERVICE_ROLE_KEY } });
   }
 });
 
