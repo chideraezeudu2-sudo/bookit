@@ -10,7 +10,7 @@ const { getTemplates } = require('../utils/messageTemplates');
  * GET /api/booking/:slug
  * Get contractor info for the public booking page
  */
-router.get('/booking/:slug', async (req, res) => {
+router.get('/:slug', async (req, res) => {
   const { slug } = req.params;
 
   try {
@@ -44,7 +44,7 @@ router.get('/booking/:slug', async (req, res) => {
  * Get available time slots for a specific date
  * Query params: date=YYYY-MM-DD
  */
-router.get('/booking/:slug/slots', async (req, res) => {
+router.get('/:slug/slots', async (req, res) => {
   const { slug } = req.params;
   const { date } = req.query;
 
@@ -78,7 +78,7 @@ router.get('/booking/:slug/slots', async (req, res) => {
  * Confirm a booking from the public page
  * Body: { customer_name, customer_phone, issue_description, chosen_slot }
  */
-router.post('/booking/:slug/confirm', express.json(), async (req, res) => {
+router.post('/:slug/confirm', express.json(), async (req, res) => {
   const { slug } = req.params;
   const { customer_name, customer_phone, issue_description, chosen_slot } = req.body;
 
