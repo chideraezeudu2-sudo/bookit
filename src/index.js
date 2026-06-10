@@ -28,7 +28,7 @@ const bookingRouter = require('./routes/booking');
 const stripeRouter = require('./routes/stripe');
 
 // Mount routes
-app.use('/webhook/sms', webhookRouter);  // Twilio SMS webhook → /webhook/sms
+app.use('/webhook/sms', webhookRouter); // NOTE: route is /webhook/sms/sms  // Twilio SMS webhook → /webhook/sms
 app.use('/webhook/stripe', stripeRouter); // Stripe webhook → /webhook/stripe
 app.use('/api', signupRouter);
 app.use('/api/booking', bookingRouter);

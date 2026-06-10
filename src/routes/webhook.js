@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { handleInbound } = require('../services/conversation');
 
-router.post('/sms', express.urlencoded({ extended: false }), async (req, res) => {
+router.post('/', express.urlencoded({ extended: false }), async (req, res) => {
   const { From, To, Body } = req.body;
   
   console.log(`📨 SMS RECEIVED — From: ${From}, To: ${To}, Body: "${Body}"`);
