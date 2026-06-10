@@ -35,7 +35,9 @@ async function handleInbound({ from, to, body }) {
   }
 
   // 3. Check message limit (80% warning threshold)
+  console.log(`📊 Message count: ${contractor.message_count}/${contractor.message_limit}`);
   if (contractor.message_count >= contractor.message_limit) {
+    console.log(`⚠️ Message limit reached for contractor ${contractor.id}`);
     await sendSMS({
       to: from,
       from: to,
@@ -47,6 +49,7 @@ async function handleInbound({ from, to, body }) {
   
   // 3b. Warning at 80% of limit (1200 for 1500 limit)
   const warningThreshold = Math.floor(contractor.message_limit * 0.8);
+  console.log(`📊 Warning threshold: ${warningThreshold} (80% of ${contractor.message_limit})`);
   if (contractor.message_count === warningThreshold) {
     const remaining = contractor.message_limit - contractor.message_count;
     await sendSMS({
@@ -58,6 +61,7 @@ async function handleInbound({ from, to, body }) {
   }
 
   // 4. Find or create lead
+  console.log(`🔍 Looking for lead from ${from}`);
   let { data: lead } = await supabase
     .from('leads')
     .select('*')
@@ -90,7 +94,9 @@ async function handleInbound({ from, to, body }) {
   await supabase.from('leads').update({ last_message_at: new Date().toISOString() }).eq('id', lead.id);
 
   // 6. Route to correct step handler
+  console.log(`📍 Routing to step: ${lead.flow_step}`);
   await routeStep({ contractor, lead, body, from, to });
+  console.log(`✅ Flow step completed`);
 }
 
 async function offerBookingSlots({ contractor, lead, from, to, t }) {
