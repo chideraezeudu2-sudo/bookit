@@ -7,17 +7,18 @@ const { handleContractorReply } = require('./contractorSMS');
 const { handleOnboardingReply } = require('./onboarding');
 
 async function handleInbound({ from, to, body }) {
-  console.log('Inbound SMS from', from, 'to', to, ':', body);
-
-  // 1. Find contractor by Twilio number
-  const { data: contractor } = await supabase
+  console.log(`🔍 Looking up contractor for twilio_number: "${to}"`);
+  
+  const { data: contractor, error } = await supabase
     .from('contractors')
     .select('*')
     .eq('twilio_number', to)
     .single();
 
+  console.log(`🏢 Contractor found: ${contractor ? contractor.business_name : 'NONE'}, error: ${error?.message || 'none'}`);
+
   if (!contractor) {
-    console.error('No contractor found for number', to);
+    console.error(`No contractor found for number ${to}`);
     return;
   }
 
@@ -43,7 +44,7 @@ async function handleInbound({ from, to, body }) {
     });
     return;
   }
-  
+
   // 3b. Warning at 80% of limit (1200 for 1500 limit)
   const warningThreshold = Math.floor(contractor.message_limit * 0.8);
   if (contractor.message_count === warningThreshold) {
