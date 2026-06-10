@@ -2,8 +2,16 @@ const express = require('express');
 const router = express.Router();
 const { handleInbound } = require('../services/conversation');
 
+const normalizePhone = (num) => {
+  if (!num) return '';
+  const cleaned = num.trim();
+  return cleaned.startsWith('+') ? cleaned : '+' + cleaned;
+};
+
 router.post('/', express.urlencoded({ extended: false }), async (req, res) => {
-  const { From, To, Body } = req.body;
+  const From = normalizePhone(req.body.From);
+  const To = normalizePhone(req.body.To);
+  const Body = req.body.Body || '';
   
   console.log(`📨 SMS RECEIVED — From: ${From}, To: ${To}, Body: "${Body}"`);
 
