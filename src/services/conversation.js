@@ -1,72 +1,73 @@
 const supabase = require('../db/supabase');
 const { sendSMS } = require('./sms');
-const { interpretMessage } = require('./groq');
+const { interpretLeadMessage, interpretContractorCommand } = require('./groq');
 const { getTemplates } = require('../utils/messageTemplates');
-const { generateSlots, formatSlot } = require('./booking');
-const { handleContractorReply } = require('./contractorSMS');
-const { handleOnboardingReply } = require('./onboarding');
+const { generateAutoQuote } = require('./autoQuote');
+const { formatSlot } = require('./booking');
 
 async function handleInbound({ from, to, body }) {
-  console.log(`🔍 Looking up contractor for twilio_number: "${to}"`);
-  
+  console.log(`📨 SMS RECEIVED — From: ${from}, To: ${to}, Body: "${body}"`);
+
+  const normalizePhone = (num) => {
+    const cleaned = (num || '').trim();
+    return cleaned.startsWith('+') ? cleaned : '+' + cleaned;
+  };
+
+  const fromNum = normalizePhone(from);
+  const toNum = normalizePhone(to);
+
+  console.log(`🔍 Looking up contractor for twilio_number: "${toNum}"`);
+
   const { data: contractor, error } = await supabase
     .from('contractors')
     .select('*')
-    .eq('twilio_number', to)
+    .eq('twilio_number', toNum)
     .single();
 
   console.log(`🏢 Contractor found: ${contractor ? contractor.business_name : 'NONE'}, error: ${error?.message || 'none'}`);
 
   if (!contractor) {
-    console.error(`No contractor found for number ${to}`);
+    console.error(`No contractor found for number ${toNum}`);
     return;
   }
 
-  // 2. Check if this is the CONTRACTOR replying (their own phone number)
-  if (from === contractor.owner_phone) {
-    // Check if contractor is still in onboarding
-    if (contractor.onboarding_step && contractor.onboarding_step !== 'COMPLETED') {
-      await handleOnboardingReply({ contractor, body });
-      return;
-    }
-    // Handle contractor commands (YES/NO, quote, DONE, block time, stats)
-    await handleContractorReply({ contractor, body, from });
+  await supabase.from('messages').insert({
+    contractor_id: contractor.id,
+    direction: 'inbound',
+    from_number: fromNum,
+    to_number: toNum,
+    body
+  });
+
+  if (fromNum === contractor.owner_phone) {
+    await handleContractorMessage({ contractor, body, to: toNum });
     return;
   }
 
-  // 3. Check message limit (80% warning threshold)
   console.log(`📊 Message count: ${contractor.message_count}/${contractor.message_limit}`);
   if (contractor.message_count >= contractor.message_limit) {
-    console.log(`⚠️ Message limit reached for contractor ${contractor.id}`);
+    const t = getTemplates();
     await sendSMS({
-      to: from,
-      from: to,
-      body: getTemplates(contractor.message_style).limitReached(),
+      to: fromNum,
+      from: toNum,
+      body: t.limitReached(),
       contractorId: contractor.id
     });
     return;
   }
-  
-  // 3b. Warning at 80% of limit (1200 for 1500 limit)
-  const warningThreshold = Math.floor(contractor.message_limit * 0.8);
-  console.log(`📊 Warning threshold: ${warningThreshold} (80% of ${contractor.message_limit})`);
-  if (contractor.message_count === warningThreshold) {
-    const remaining = contractor.message_limit - contractor.message_count;
-    await sendSMS({
-      to: contractor.owner_phone,
-      from: to,
-      body: `Heads up — you've used ${contractor.message_count} of your ${contractor.message_limit} monthly messages. You have about ${remaining} left this month. Reply STATS anytime to check your usage.`,
-      contractorId: contractor.id
-    });
+
+  if (!contractor.is_active) {
+    console.log('Contractor not active, ignoring');
+    return;
   }
 
-  // 4. Find or create lead
-  console.log(`🔍 Looking for lead from ${from}`);
+  console.log(`🔍 Looking for lead from ${fromNum}`);
   let { data: lead } = await supabase
     .from('leads')
     .select('*')
-    .eq('phone', from)
+    .eq('phone', fromNum)
     .eq('contractor_id', contractor.id)
+    .not('status', 'in', '("completed","lost","blocked")')
     .order('created_at', { ascending: false })
     .limit(1)
     .single();
@@ -74,71 +75,36 @@ async function handleInbound({ from, to, body }) {
   if (!lead) {
     const { data: newLead } = await supabase
       .from('leads')
-      .insert({ contractor_id: contractor.id, phone: from, flow_step: 'INTRO' })
+      .insert({ contractor_id: contractor.id, phone: fromNum, flow_step: 'INTRO' })
       .select()
       .single();
     lead = newLead;
   }
 
-  // 5. Log inbound message
-  await supabase.from('messages').insert({
-    contractor_id: contractor.id,
-    lead_id: lead.id,
-    direction: 'inbound',
-    from_number: from,
-    to_number: to,
-    body
-  });
+  await supabase.from('leads').update({ last_message_at: new Date() }).eq('id', lead.id);
 
-  // Update last_message_at
-  await supabase.from('leads').update({ last_message_at: new Date().toISOString() }).eq('id', lead.id);
-
-  // 6. Route to correct step handler
   console.log(`📍 Routing to step: ${lead.flow_step}`);
-  await routeStep({ contractor, lead, body, from, to });
+  await routeLeadStep({ contractor, lead, body, from: fromNum, to: toNum });
   console.log(`✅ Flow step completed`);
 }
 
-async function offerBookingSlots({ contractor, lead, from, to, t }) {
-  const slots = generateSlots(contractor);
+async function routeLeadStep({ contractor, lead, body, from, to }) {
+  const t = getTemplates();
 
-  const slotA = formatSlot(slots[0]);
-  const slotB = formatSlot(slots[1]);
-  const slotC = formatSlot(slots[2]);
-
-  await supabase.from('bookings').insert({
-    contractor_id: contractor.id,
-    lead_id: lead.id,
-    slot_a: slots[0].toISOString(),
-    slot_b: slots[1].toISOString(),
-    slot_c: slots[2].toISOString(),
-    status: 'pending'
-  });
-
-  await supabase.from('leads').update({ flow_step: 'OFFER_SLOTS' }).eq('id', lead.id);
-
-  await sendSMS({
-    to: from,
-    from: to,
-    body: t.offerSlots(slotA, slotB, slotC),
-    contractorId: contractor.id,
-    leadId: lead.id
-  });
-}
-
-async function routeStep({ contractor, lead, body, from, to }) {
-  const t = getTemplates(contractor.message_style);
-  const step = lead.flow_step;
-  const msg = body.trim().toLowerCase();
-
-  switch (step) {
+  switch (lead.flow_step) {
     case 'INTRO': {
       await supabase.from('leads').update({
         issue_description: body,
         flow_step: 'ASK_LOCATION'
       }).eq('id', lead.id);
 
-      await sendSMS({ to: from, from: to, body: t.askLocation(), contractorId: contractor.id, leadId: lead.id });
+      await sendSMS({
+        to: from,
+        from: to,
+        body: t.askLocation(body),
+        contractorId: contractor.id,
+        leadId: lead.id
+      });
       break;
     }
 
@@ -148,88 +114,249 @@ async function routeStep({ contractor, lead, body, from, to }) {
         flow_step: 'ASK_URGENCY'
       }).eq('id', lead.id);
 
-      await sendSMS({ to: from, from: to, body: t.askUrgency(), contractorId: contractor.id, leadId: lead.id });
-      break;
-    }
-
-    case 'ASK_URGENCY': {
-      await supabase.from('leads').update({
-        urgency: body,
-        flow_step: 'AWAITING_QUOTE',
-        status: 'qualifying'
-      }).eq('id', lead.id);
-
-      // Notify contractor to provide a quote
-      const summaryMsg = `📋 LEAD READY FOR QUOTE\n\nIssue: ${lead.issue_description}\nLocation: ${lead.location}\nUrgency: ${body}\n\nReply with the quote amount (e.g. "$350") to send it to the customer.`;
-
       await sendSMS({
-        to: contractor.owner_phone,
+        to: from,
         from: to,
-        body: summaryMsg,
+        body: t.askUrgency(),
         contractorId: contractor.id,
         leadId: lead.id
       });
       break;
     }
 
-    case 'QUOTE_SENT': {
-      const aiResult = await interpretMessage({
-        message: body,
-        context: 'Lead was sent a quote. Checking if they want to book.',
-        flowStep: step
+    case 'ASK_URGENCY': {
+      await supabase.from('leads').update({
+        urgency: body,
+        flow_step: 'QUOTE_SENT',
+        status: 'qualifying'
+      }).eq('id', lead.id);
+
+      const { data: updatedLead } = await supabase
+        .from('leads').select('*').eq('id', lead.id).single();
+
+      console.log('💰 Generating auto quote...');
+      const quote = await generateAutoQuote({
+        issueDescription: updatedLead.issue_description,
+        location: updatedLead.location,
+        contractor
       });
 
-      if (aiResult.intent === 'CONFIRM_YES' || msg.includes('yes') || msg.includes('book') || msg.includes('sure') || msg.includes('ok')) {
-        await offerBookingSlots({ contractor, lead, from, to, t });
-      } else if (aiResult.intent === 'CONFIRM_NO' || msg.includes('no') || msg.includes('not') || msg.includes('pass')) {
-        await supabase.from('leads').update({ status: 'lost' }).eq('id', lead.id);
-      } else {
-        await sendSMS({ to: from, from: to, body: t.quoteSent(lead.quote_amount), contractorId: contractor.id, leadId: lead.id });
-      }
+      console.log(`💰 Quote generated: $${quote.total_low}-${quote.total_high}`);
+
+      const quoteAmount = `$${quote.total_low}-${quote.total_high}`;
+      await supabase.from('leads').update({
+        quote_amount: quoteAmount,
+        quote_sent_at: new Date()
+      }).eq('id', lead.id);
+
+      const bookingLink = `${process.env.BASE_URL}/book/${contractor.booking_slug}`;
+      await sendSMS({
+        to: from,
+        from: to,
+        body: t.quoteAndBook(updatedLead.issue_description, quote.quote_message, bookingLink),
+        contractorId: contractor.id,
+        leadId: lead.id
+      });
+
+      await sendSMS({
+        to: contractor.owner_phone,
+        from: to,
+        body: t.leadReady(
+          updatedLead.issue_description,
+          updatedLead.location,
+          updatedLead.urgency,
+          quote.total_low,
+          quote.total_high
+        ),
+        contractorId: contractor.id,
+        leadId: lead.id
+      });
+
+      const now = new Date();
+      await supabase.from('scheduled_jobs').insert([
+        { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 24 * 60 * 60 * 1000) },
+        { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000) },
+        { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) },
+      ]);
       break;
     }
 
-    case 'OFFER_SLOTS': {
-      let chosenSlot = null;
-
-      if (msg.includes('a') || msg === '1') {
-        const { data: booking } = await supabase.from('bookings').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }).limit(1).single();
-        chosenSlot = booking?.slot_a;
-      } else if (msg.includes('b') || msg === '2') {
-        const { data: booking } = await supabase.from('bookings').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }).limit(1).single();
-        chosenSlot = booking?.slot_b;
-      } else if (msg.includes('c') || msg === '3') {
-        const { data: booking } = await supabase.from('bookings').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }).limit(1).single();
-        chosenSlot = booking?.slot_c;
-      } else {
-        await offerBookingSlots({ contractor, lead, from, to, t });
-        return;
-      }
-
-      if (chosenSlot) {
-        await supabase.from('bookings').update({ chosen_slot: chosenSlot }).eq('lead_id', lead.id);
-        await supabase.from('leads').update({ flow_step: 'AWAITING_CONTRACTOR' }).eq('id', lead.id);
-
-        await sendSMS({ to: from, from: to, body: t.awaitingContractor(), contractorId: contractor.id, leadId: lead.id });
-
-        const details = `Customer: ${lead.phone}\nIssue: ${lead.issue_description}\nLocation: ${lead.location}\nUrgency: ${lead.urgency}`;
-        const { data: booking } = await supabase.from('bookings').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }).limit(1).single();
-        const prompt = t.contractorPrompt(
-          details,
-          formatSlot(new Date(booking.slot_a)),
-          formatSlot(new Date(booking.slot_b)),
-          formatSlot(new Date(booking.slot_c))
-        );
-
-        await sendSMS({ to: contractor.owner_phone, from: to, body: prompt, contractorId: contractor.id, leadId: lead.id });
-      }
+    case 'QUOTE_SENT': {
+      const bookingLink = `${process.env.BASE_URL}/book/${contractor.booking_slug}`;
+      await sendSMS({
+        to: from,
+        from: to,
+        body: `Hey just use this link to pick a time that works for you: ${bookingLink}`,
+        contractorId: contractor.id,
+        leadId: lead.id
+      });
       break;
     }
 
-    default:
-      console.log('Unknown step:', step);
+    case 'CONFIRMED': {
+      await sendSMS({
+        to: from,
+        from: to,
+        body: `Hey you're already booked in! We'll see you at your scheduled time. Reply CANCEL if you need to reschedule 👍`,
+        contractorId: contractor.id,
+        leadId: lead.id
+      });
       break;
+    }
+
+    default: {
+      console.log(`Unknown step: ${lead.flow_step}`);
+      break;
+    }
   }
+}
+
+async function handleContractorMessage({ contractor, body, to }) {
+  const t = getTemplates();
+  const msg = body.trim().toLowerCase();
+
+  if (msg === 'cancel' || msg.includes('cancel subscription')) {
+    await supabase.from('contractors').update({
+      is_active: false,
+      subscription_status: 'cancelled'
+    }).eq('id', contractor.id);
+
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: to,
+      body: t.cancelConfirmed(),
+      contractorId: contractor.id
+    });
+    return;
+  }
+
+  if (msg === 'refund' || msg.includes('refund')) {
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: to,
+      body: t.refundInitiated(),
+      contractorId: contractor.id
+    });
+    return;
+  }
+
+  if (msg === 'done' || msg.includes('job done') || msg.includes('completed')) {
+    await handleJobDone({ contractor, to });
+    return;
+  }
+
+  if (msg.includes('stat') || msg.includes('how many') || msg.includes('leads')) {
+    await handleStatsRequest({ contractor, to, t });
+    return;
+  }
+
+  const quoteMatch = body.trim().match(/^\$?(\d+)$/);
+  if (quoteMatch || msg === 'approve') {
+    await handleQuoteReply({ contractor, body: body.trim(), to, t });
+    return;
+  }
+
+  await sendSMS({
+    to: contractor.owner_phone,
+    from: to,
+    body: t.unknownCommand(),
+    contractorId: contractor.id
+  });
+}
+
+async function handleQuoteReply({ contractor, body, to, t }) {
+  const msg = body.toLowerCase();
+
+  const { data: lead } = await supabase
+    .from('leads')
+    .select('*')
+    .eq('contractor_id', contractor.id)
+    .eq('flow_step', 'QUOTE_SENT')
+    .order('last_message_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!lead) return;
+
+  const bookingLink = `${process.env.BASE_URL}/book/${contractor.booking_slug}`;
+
+  let finalAmount;
+  if (msg === 'approve') {
+    finalAmount = lead.quote_amount;
+  } else {
+    const match = body.trim().match(/^\$?(\d+)$/);
+    finalAmount = match ? `$${match[1]}` : lead.quote_amount;
+  }
+
+  await supabase.from('leads').update({
+    quote_amount: finalAmount
+  }).eq('id', lead.id);
+
+  await sendSMS({
+    to: lead.phone,
+    from: to,
+    body: `Hey just to confirm, you're looking at ${finalAmount} all in for that job. Want to lock in a time? ${bookingLink}`,
+    contractorId: contractor.id,
+    leadId: lead.id
+  });
+}
+
+async function handleJobDone({ contractor, to }) {
+  const { data: booking } = await supabase
+    .from('bookings')
+    .select('*, leads(*)')
+    .eq('contractor_id', contractor.id)
+    .eq('status', 'confirmed')
+    .order('chosen_slot', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!booking) return;
+
+  await supabase.from('bookings').update({ completed: true, status: 'completed' }).eq('id', booking.id);
+  await supabase.from('leads').update({ status: 'completed', flow_step: 'COMPLETED' }).eq('id', booking.lead_id);
+
+  const reviewTime = new Date();
+  reviewTime.setDate(reviewTime.getDate() + 1);
+  reviewTime.setHours(10, 0, 0, 0);
+
+  await supabase.from('scheduled_jobs').insert({
+    job_type: 'review_request',
+    lead_id: booking.lead_id,
+    booking_id: booking.id,
+    contractor_id: contractor.id,
+    scheduled_for: reviewTime
+  });
+}
+
+async function handleStatsRequest({ contractor, to, t }) {
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const { count: leadCount } = await supabase
+    .from('leads').select('*', { count: 'exact', head: true })
+    .eq('contractor_id', contractor.id)
+    .gte('created_at', startOfMonth.toISOString());
+
+  const { count: bookedCount } = await supabase
+    .from('leads').select('*', { count: 'exact', head: true })
+    .eq('contractor_id', contractor.id)
+    .eq('status', 'confirmed')
+    .gte('created_at', startOfMonth.toISOString());
+
+  const { count: pendingCount } = await supabase
+    .from('leads').select('*', { count: 'exact', head: true })
+    .eq('contractor_id', contractor.id)
+    .eq('flow_step', 'QUOTE_SENT')
+    .gte('created_at', startOfMonth.toISOString());
+
+  await sendSMS({
+    to: contractor.owner_phone,
+    from: to,
+    body: t.statsReply(leadCount || 0, bookedCount || 0, pendingCount || 0),
+    contractorId: contractor.id
+  });
 }
 
 module.exports = { handleInbound };

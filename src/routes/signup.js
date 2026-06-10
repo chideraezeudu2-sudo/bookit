@@ -53,6 +53,10 @@ router.post('/signup', express.json(), async (req, res) => {
     start_time,
     end_time,
     message_style,
+    callout_fee,
+    hourly_rate,
+    parts_markup,
+    job_minimum,
     stripe_session_id
   } = req.body;
 
@@ -90,7 +94,6 @@ router.post('/signup', express.json(), async (req, res) => {
         });
         twilioNumber = purchased.phoneNumber;
       } else {
-        // Fallback to default Twilio number if no number available in area code
         twilioNumber = process.env.TWILIO_PHONE_NUMBER;
       }
     } catch (twilioErr) {
@@ -104,7 +107,6 @@ router.post('/signup', express.json(), async (req, res) => {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
     
-    // Check if slug exists and add random suffix if needed
     const { data: existingSlug } = await supabase
       .from('contractors')
       .select('booking_slug')
@@ -132,7 +134,11 @@ router.post('/signup', express.json(), async (req, res) => {
         working_days: working_days || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
         start_time: start_time || '08:00',
         end_time: end_time || '17:00',
-        message_style: message_style || 'friendly',
+        message_style: message_style || 'Friendly',
+        callout_fee: callout_fee || 75,
+        hourly_rate: hourly_rate || 95,
+        parts_markup: parts_markup || 20,
+        job_minimum: job_minimum || 150,
         booking_slug: bookingSlug,
         stripe_customer_id: session.customer,
         stripe_subscription_id: stripeSubscriptionId,
