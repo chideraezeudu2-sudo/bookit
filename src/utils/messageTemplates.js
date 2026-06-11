@@ -4,7 +4,7 @@ function getTemplates() {
       `Hey, this is ${assistantName} from ${bizName}. Sorry we missed your call. What's going on? Just tell me a little about what you need help with.`,
 
     askLocation: () =>
-      `Sorry you're dealing with that. What's your address?`,
+      `Sorry you're dealing with that. Let me get a couple quick details so we can know what we are dealing with. What's your address?`,
 
     askUrgency: () =>
       `Got it. Is this an emergency or can it wait a day or two?`,
@@ -12,8 +12,8 @@ function getTemplates() {
     roughQuote: (amountLow, amountHigh) =>
       `Based on what you told me, most jobs like this run between $${amountLow} and $${amountHigh}. I can't promise the exact price until our tech sees it, but that's the ballpark. Sound okay?`,
 
-    quoteAndBook: (quoteMsg, bookingLink) =>
-      `${quoteMsg}. Book here: ${bookingLink}`,
+    quoteAndBook: (quoteMsg, bookingLink, ownerName) =>
+      `Awesome. Here's a link to pick a schedule and a time that works for you. Our calendar shows when ${ownerName} is available. ${bookingLink}`,
 
     followUp1: (bookingLink) =>
       `Hey just checking in, still need us to come sort that out? You can grab a time here whenever you're ready: ${bookingLink}`,
