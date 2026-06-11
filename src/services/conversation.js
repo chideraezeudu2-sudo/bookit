@@ -23,20 +23,24 @@ async function handleInbound({ from, to, body }) {
     .eq('twilio_number', toNum)
     .single();
 
-  console.log(`🏢 Contractor found: ${contractor ? contractor.business_name : 'NONE'}, error: ${error?.message || 'none'}`);
+  console.log(`Contractor found: ${contractor ? contractor.business_name : 'NONE'}, error: ${error?.message || 'none'}`);
 
   if (!contractor) {
-    console.error(`No contractor found for number ${toNum}`);
+    console.log(`No contractor found for number ${toNum}, skipping`);
     return;
   }
 
-  await supabase.from('messages').insert({
-    contractor_id: contractor.id,
-    direction: 'inbound',
-    from_number: fromNum,
-    to_number: toNum,
-    body
-  });
+  try {
+    await supabase.from('messages').insert({
+      contractor_id: contractor.id,
+      direction: 'inbound',
+      from_number: fromNum,
+      to_number: toNum,
+      body
+    });
+  } catch (msgErr) {
+    console.error('Failed to log inbound message:', msgErr.message);
+  }
 
   if (fromNum === contractor.owner_phone) {
     await handleContractorMessage({ contractor, body, to: toNum });

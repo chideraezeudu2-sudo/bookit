@@ -41,8 +41,14 @@ router.post('/', express.urlencoded({ extended: false }), async (req, res) => {
   } catch (err) {
     console.error(`Webhook error: ${err.message}`);
     console.error(err.stack);
-    await alertOwner(`Webhook processing failed: ${err.message}`, `From: ${From}, Body: ${Body.slice(0, 100)}`);
-    res.status(500).send('Error');
+    try {
+      await alertOwner(`Webhook processing failed: ${err.message}`, `From: ${From}, Body: ${Body.slice(0, 100)}`);
+    } catch (alertErr) {
+      console.error('Alert failed:', alertErr.message);
+    }
+    // Always return valid Twilio response
+    res.set('Content-Type', 'text/xml');
+    res.send('<Response></Response>');
   }
 });
 
