@@ -54,7 +54,7 @@ Return ONLY valid JSON, no explanation:
       job_type: 'Service Call',
       total_low: minimum,
       total_high: minimum * 3,
-      quote_message: `you're probably looking at $${minimum}-${minimum * 3} all in depending on what we find`
+      quote_message: `probably $${minimum}-${minimum * 3} all in`
     };
   }
 }

@@ -101,7 +101,7 @@ async function routeLeadStep({ contractor, lead, body, from, to }) {
       await sendSMS({
         to: from,
         from: to,
-        body: t.askLocation(body),
+        body: t.askLocation(),
         contractorId: contractor.id,
         leadId: lead.id
       });
@@ -153,7 +153,7 @@ async function routeLeadStep({ contractor, lead, body, from, to }) {
       await sendSMS({
         to: from,
         from: to,
-        body: t.quoteAndBook(updatedLead.issue_description, quote.quote_message, bookingLink),
+        body: t.quoteAndBook(quote.quote_message, bookingLink),
         contractorId: contractor.id,
         leadId: lead.id
       });

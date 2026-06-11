@@ -1,16 +1,19 @@
 function getTemplates() {
   return {
-    missedCall: (bizName) =>
-      `Hey! Sorry we missed your call. What's going on, how can we help?`,
+    missedCall: (assistantName, bizName) =>
+      `Hey, this is ${assistantName} from ${bizName}. Sorry we missed your call. What's going on? Just tell me a little about what you need help with.`,
 
-    askLocation: (issue) =>
-      `Sorry to hear that! That's something we deal with all the time, we've got you covered. Whereabouts are you located?`,
+    askLocation: () =>
+      `Sorry you're dealing with that. What's your address?`,
 
     askUrgency: () =>
-      `Got it. Is this something urgent or can it wait a couple of days?`,
+      `Got it. Is this an emergency or can it wait a day or two?`,
 
-    quoteAndBook: (issue, quoteMsg, bookingLink) =>
-      `Okay so for the ${issue} — ${quoteMsg}. Want me to get someone out to you? Pick a time here: ${bookingLink}`,
+    roughQuote: (amountLow, amountHigh) =>
+      `Based on what you told me, most jobs like this run between $${amountLow} and $${amountHigh}. I can't promise the exact price until our tech sees it, but that's the ballpark. Sound okay?`,
+
+    quoteAndBook: (quoteMsg, bookingLink) =>
+      `${quoteMsg}. Book here: ${bookingLink}`,
 
     followUp1: (bookingLink) =>
       `Hey just checking in, still need us to come sort that out? You can grab a time here whenever you're ready: ${bookingLink}`,
@@ -22,7 +25,10 @@ function getTemplates() {
       `Last message from us, we don't want to bother you! Just reply anytime if you'd like us to come sort it out 👍`,
 
     bookingConfirmed: (slot, bizName) =>
-      `You're all booked! We'll have someone with you ${slot}. Once again really sorry for the inconvenience, we'll get that sorted out for you no problem 👍`,
+      `You're all set for ${slot}. Someone from ${bizName} will be there. You'll get a reminder the day before. Thanks for trusting us – we'll take good care of you.`,
+
+    bookingConfirmedAlt: (slot, ownerName) =>
+      `Perfect. You're booked for ${slot}. I'll let ${ownerName} know and we'll send someone there. Thank you`,
 
     bookingReminder: (slot) =>
       `Hey just a heads up, we've got someone coming to you tomorrow at ${slot}. See you then!`,
