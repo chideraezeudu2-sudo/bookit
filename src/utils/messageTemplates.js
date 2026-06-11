@@ -10,7 +10,7 @@ function getTemplates() {
       `Got it. Is this an emergency or can it wait a day or two?`,
 
     quoteAndBook: (quoteLow, quoteHigh, bookingLink) =>
-      `Got it. Most jobs like this run between $${quoteLow} and $${quoteHigh} — I can't promise the exact price until our tech sees it but that's the ballpark. Here's a link to pick a time that works for you: ${bookingLink}`,
+      `Got it. Most jobs like this run between $${quoteLow} and $${quoteHigh}. I can't promise the exact price until our tech sees it but that's the ballpark. Here's a link to pick a time that works for you: ${bookingLink}`,
 
     bookingConfirmed: (day, time, bizName) =>
       `You're all set for ${day} at ${time}. Someone from ${bizName} will be there. You'll get a reminder the day before. Thanks for trusting us, we'll take good care of you.`,
