@@ -95,6 +95,21 @@ async function routeLeadStep({ contractor, lead, body, from, to }) {
     case 'INTRO': {
       await supabase.from('leads').update({
         issue_description: body,
+        flow_step: 'ACK_PROBLEM'
+      }).eq('id', lead.id);
+
+      await sendSMS({
+        to: from,
+        from: to,
+        body: t.ackProblem(),
+        contractorId: contractor.id,
+        leadId: lead.id
+      });
+      break;
+    }
+
+    case 'ACK_PROBLEM': {
+      await supabase.from('leads').update({
         flow_step: 'ASK_LOCATION'
       }).eq('id', lead.id);
 
@@ -127,51 +142,76 @@ async function routeLeadStep({ contractor, lead, body, from, to }) {
     case 'ASK_URGENCY': {
       await supabase.from('leads').update({
         urgency: body,
-        flow_step: 'QUOTE_SENT',
-        status: 'qualifying'
+        flow_step: 'QUOTE_PENDING'
       }).eq('id', lead.id);
 
-      const { data: updatedLead } = await supabase
-        .from('leads').select('*').eq('id', lead.id).single();
-
+      // Generate auto quote using AI
       console.log('💰 Generating auto quote...');
       const quote = await generateAutoQuote({
-        issueDescription: updatedLead.issue_description,
-        location: updatedLead.location,
+        issueDescription: lead.issue_description,
+        location: lead.location,
         contractor
       });
 
       console.log(`💰 Quote generated: $${quote.total_low}-${quote.total_high}`);
 
+      // Save quote to lead
       const quoteAmount = `$${quote.total_low}-${quote.total_high}`;
       await supabase.from('leads').update({
         quote_amount: quoteAmount,
         quote_sent_at: new Date()
       }).eq('id', lead.id);
 
+      // Send rough quote to customer
+      await sendSMS({
+        to: from,
+        from: to,
+        body: t.roughQuote(quote.total_low, quote.total_high),
+        contractorId: contractor.id,
+        leadId: lead.id
+      });
+      break;
+    }
+
+    case 'QUOTE_PENDING': {
+      // Customer confirmed the rough quote or wants to proceed
+      // Fetch the quote amounts from lead record
+      const { data: leadData } = await supabase.from('leads').select('quote_amount').eq('id', lead.id).single();
+      const quoteAmount = leadData?.quote_amount || '$150-$450';
+      // Extract numbers from quote_amount like "$150-$450"
+      const quoteMatch = quoteAmount.match(/\$(\d+)-?(\d+)?/);
+      const quoteLow = quoteMatch ? parseInt(quoteMatch[1]) : 150;
+      const quoteHigh = quoteMatch ? (quoteMatch[2] ? parseInt(quoteMatch[2]) : quoteLow * 3) : 450;
+
       const bookingLink = `${process.env.BASE_URL}/book/${contractor.booking_slug}`;
       await sendSMS({
         to: from,
         from: to,
-        body: t.quoteAndBook(quote.quote_message, bookingLink, contractor.owner_name || 'our team'),
+        body: t.quoteAndBook(quoteAmount, bookingLink, contractor.owner_name || 'our team'),
         contractorId: contractor.id,
         leadId: lead.id
       });
 
+      await supabase.from('leads').update({
+        flow_step: 'QUOTE_SENT'
+      }).eq('id', lead.id);
+
+      // Notify contractor
       await sendSMS({
         to: contractor.owner_phone,
         from: to,
         body: t.leadReady(
-          updatedLead.issue_description,
-          updatedLead.location,
-          updatedLead.urgency,
-          quote.total_low,
-          quote.total_high
+          lead.issue_description,
+          lead.location,
+          lead.urgency,
+          quoteLow,
+          quoteHigh
         ),
         contractorId: contractor.id,
         leadId: lead.id
       });
 
+      // Schedule follow-ups
       const now = new Date();
       await supabase.from('scheduled_jobs').insert([
         { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 24 * 60 * 60 * 1000) },
