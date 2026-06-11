@@ -34,7 +34,8 @@ router.get('/:slug', async (req, res) => {
     }
 
     // Fallback for testing - return demo contractor if slug matches test pattern
-    if (!contractor && (slug.includes('test') || slug.includes('demo'))) {
+    const slugLower = slug.toLowerCase();
+    if (!contractor && (slugLower.includes('test') || slugLower.includes('demo'))) {
       return res.json({
         business_name: 'Test Plumbing Co',
         service_type: 'Plumbing Services',
@@ -97,13 +98,16 @@ router.get('/:slug/slots', async (req, res) => {
     }
 
     // Fallback for testing - use default hours if slug matches test pattern
-    if (!contractor && (slug.includes('test') || slug.includes('demo'))) {
-      contractor = {
-        id: 'test-id',
-        working_days: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
-        start_time: '08:00',
-        end_time: '17:00'
-      };
+    if (!contractor) {
+      const slugLower = slug.toLowerCase();
+      if (slugLower.includes('test') || slugLower.includes('demo')) {
+        contractor = {
+          id: 'test-id',
+          working_days: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+          start_time: '08:00',
+          end_time: '17:00'
+        };
+      }
     }
 
     if (!contractor) {
@@ -153,18 +157,21 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
     }
 
     // Fallback for testing - use default values but require real contractor for SMS
-    if (!contractor && (slug.includes('test') || slug.includes('demo'))) {
-      contractor = {
-        id: 'test-id',
-        business_name: 'Test Plumbing Co',
-        service_type: 'Plumbing',
-        twilio_number: process.env.TWILIO_PHONE_NUMBER || '+12566374466',
-        owner_phone: '+18438581599',
-        booking_slug: slug,
-        assistant_name: 'Sarah',
-        owner_name: 'Mike',
-        message_style: 'Friendly'
-      };
+    if (!contractor) {
+      const slugLower = slug.toLowerCase();
+      if (slugLower.includes('test') || slugLower.includes('demo')) {
+        contractor = {
+          id: 'test-id',
+          business_name: 'Test Plumbing Co',
+          service_type: 'Plumbing',
+          twilio_number: process.env.TWILIO_PHONE_NUMBER || '+12566374466',
+          owner_phone: '+18438581599',
+          booking_slug: slug,
+          assistant_name: 'Sarah',
+          owner_name: 'Mike',
+          message_style: 'Friendly'
+        };
+      }
     }
 
     if (!contractor) {
