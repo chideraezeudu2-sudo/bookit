@@ -15,12 +15,13 @@ router.get('/:slug', async (req, res) => {
 
   try {
     // First try to find by id (for testing)
-    let { data: contractor, error } = await supabase
+    let { data: contractor } = await supabase
       .from('contractors')
       .select('id, business_name, service_type, working_days, start_time, end_time, message_style')
       .eq('id', slug)
       .eq('is_active', true)
-      .single();
+      .single()
+      .catch(() => ({ data: null }));
 
     // If not found, try by booking_slug
     if (!contractor) {
@@ -29,7 +30,8 @@ router.get('/:slug', async (req, res) => {
         .select('id, business_name, service_type, working_days, start_time, end_time, message_style')
         .eq('booking_slug', slug)
         .eq('is_active', true)
-        .single();
+        .single()
+        .catch(() => ({ data: null }));
       contractor = bySlug;
     }
 
@@ -46,7 +48,7 @@ router.get('/:slug', async (req, res) => {
       });
     }
 
-    if (error || !contractor) {
+    if (!contractor) {
       return res.status(404).json({ error: 'Contractor not found', slug });
     }
 
@@ -84,7 +86,8 @@ router.get('/:slug/slots', async (req, res) => {
       .select('*')
       .eq('id', slug)
       .eq('is_active', true)
-      .single();
+      .single()
+      .catch(() => ({ data: null }));
 
     // If not found, try by booking_slug
     if (!contractor) {
@@ -93,7 +96,8 @@ router.get('/:slug/slots', async (req, res) => {
         .select('*')
         .eq('booking_slug', slug)
         .eq('is_active', true)
-        .single();
+        .single()
+        .catch(() => ({ data: null }));
       contractor = bySlug;
     }
 
@@ -143,7 +147,8 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
       .select('*')
       .eq('id', slug)
       .eq('is_active', true)
-      .single();
+      .single()
+      .catch(() => ({ data: null }));
 
     // If not found, try by booking_slug
     if (!contractor) {
@@ -152,7 +157,8 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
         .select('*')
         .eq('booking_slug', slug)
         .eq('is_active', true)
-        .single();
+        .single()
+        .catch(() => ({ data: null }));
       contractor = bySlug;
     }
 
