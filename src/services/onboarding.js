@@ -50,11 +50,115 @@ async function handleOnboardingReply({ contractor, body }) {
       const assistantName = msg;
       await supabase.from('contractors').update({ 
         assistant_name: assistantName,
+        onboarding_step: 'ASK_HOURS' 
+      }).eq('id', contractor.id);
+
+      // Step 2: Ask about working hours
+      const hoursMsg = `Love it! I'll be ${assistantName} from now on 😄\n\nNow let's set your working hours.\n\nWhat days do you work? (e.g. "Mon-Fri" or "Mon, Wed, Fri")\n\nI'll show customers these days on the booking calendar.`;
+
+      await sendSMS({
+        to: contractor.owner_phone,
+        from: twilioNumber,
+        body: hoursMsg,
+        contractorId: contractor.id
+      });
+      break;
+    }
+
+    case 'ASK_HOURS': {
+      // Parse working days from response
+      const daysMsg = msg.toLowerCase();
+      let workingDays = [];
+
+      const dayMap = {
+        'mon': 'Mon', 'monday': 'Mon',
+        'tue': 'Tue', 'tuesday': 'Tue',
+        'wed': 'Wed', 'wednesday': 'Wed',
+        'thu': 'Thu', 'thursday': 'Thu',
+        'fri': 'Fri', 'friday': 'Fri',
+        'sat': 'Sat', 'saturday': 'Sat',
+        'sun': 'Sun', 'sunday': 'Sun'
+      };
+
+      // Parse various formats: "Mon-Fri", "Mon, Wed, Fri", "Mon Wed Fri"
+      const dayPatterns = [
+        /(?:mon|tue|wed|thu|fri|sat|sun)/gi,
+      ];
+      
+      // Find all day mentions
+      for (const [short, full] of Object.entries(dayMap)) {
+        if (daysMsg.includes(short)) {
+          workingDays.push(full);
+        }
+      }
+
+      // Also check for range patterns like "Mon-Fri"
+      if (daysMsg.includes('-')) {
+        const rangeMatch = daysMsg.match(/(mon|tue|wed|thu|fri|sat|sun)\s*-\s*(mon|tue|wed|thu|fri|sat|sun)/i);
+        if (rangeMatch) {
+          const dayOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+          const startIdx = dayOrder.indexOf(dayMap[rangeMatch[1].toLowerCase()]);
+          const endIdx = dayOrder.indexOf(dayMap[rangeMatch[2].toLowerCase()]);
+          if (startIdx <= endIdx) {
+            workingDays = dayOrder.slice(startIdx, endIdx + 1);
+          }
+        }
+      }
+
+      // Default to Mon-Fri if nothing parsed
+      if (workingDays.length === 0) {
+        workingDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+      }
+
+      await supabase.from('contractors').update({ 
+        working_days: workingDays,
+        onboarding_step: 'ASK_START_TIME' 
+      }).eq('id', contractor.id);
+
+      // Step 3: Ask for start time
+      const startTimeMsg = `Great! You work ${workingDays.join(', ')}.\n\nWhat time do you start work? (e.g. "8am" or "9")`;
+
+      await sendSMS({
+        to: contractor.owner_phone,
+        from: twilioNumber,
+        body: startTimeMsg,
+        contractorId: contractor.id
+      });
+      break;
+    }
+
+    case 'ASK_START_TIME': {
+      // Save start time
+      const startTime = msg.toLowerCase().replace(/\s+/g, '');
+      
+      await supabase.from('contractors').update({ 
+        start_time: startTime,
+        onboarding_step: 'ASK_END_TIME' 
+      }).eq('id', contractor.id);
+
+      // Step 4: Ask for end time
+      const endTimeMsg = `Got it, you start at ${startTime}.\n\nWhat time do you finish work? (e.g. "5pm" or "17")`;
+
+      await sendSMS({
+        to: contractor.owner_phone,
+        from: twilioNumber,
+        body: endTimeMsg,
+        contractorId: contractor.id
+      });
+      break;
+    }
+
+    case 'ASK_END_TIME': {
+      // Save end time
+      const endTime = msg.toLowerCase().replace(/\s+/g, '');
+
+      await supabase.from('contractors').update({ 
+        end_time: endTime,
         onboarding_step: 'ASK_FORWARDING' 
       }).eq('id', contractor.id);
 
-      // Step 2: Ask about call forwarding
-      const forwardingMsg = `Love it! I'll be ${assistantName} from now on 😄\n\nLast step: enable "Call Forwarding" on your phone to forward missed calls to ${twilioNumber}.\n\nOnce done, reply YES and you're live!`;
+      // Step 5: Ask about call forwarding
+      const forwardingMsg = `Perfect! You'll be available from ${contractor.start_time} to ${endTime}.\n\nLast step: enable "Call Forwarding" on your phone to forward missed calls to ${twilioNumber}.\n\nOnce done, reply YES and you're live!`;
 
       await sendSMS({
         to: contractor.owner_phone,
@@ -85,7 +189,8 @@ async function handleOnboardingReply({ contractor, body }) {
         }).eq('id', contractor.id);
 
         const assistantName = contractor.assistant_name || 'Your assistant';
-        const liveMsg = `🚀 You're LIVE, ${contractor.business_name}!\n\n${assistantName} will now handle all your booking inquiries automatically.\n\nYour booking page: ${bookingLink}\n\nShare this link with customers or let them find it from your website!`;
+        const daysStr = (contractor.working_days || ['Mon-Fri']).join(', ');
+        const liveMsg = `🚀 You're LIVE, ${contractor.business_name}!\n\n${assistantName} will handle bookings ${daysStr}, ${contractor.start_time}-${contractor.end_time}.\n\nYour booking page: ${bookingLink}\n\nShare this link with customers!`;
 
         await sendSMS({
           to: contractor.owner_phone,

@@ -114,11 +114,19 @@ async function getAvailableSlotsForDate(contractor, dateStr) {
       }
     }
 
-    // Check existing bookings
+    // Check existing bookings - block slots within job duration of booked time
     if (bookings) {
       for (const booking of bookings) {
         const bookedSlot = parseISO(booking.chosen_slot);
-        if (Math.abs(slot.getTime() - bookedSlot.getTime()) < 2 * 60 * 60 * 1000) { // Within 2 hours
+        // Default job duration is 2 hours - block that window
+        const JOB_DURATION_HOURS = 2;
+        const slotStart = slot.getTime();
+        const slotEnd = slotStart + JOB_DURATION_HOURS * 60 * 60 * 1000;
+        const bookingStart = bookedSlot.getTime();
+        const bookingEnd = bookingStart + JOB_DURATION_HOURS * 60 * 60 * 1000;
+        
+        // Check if this slot overlaps with the booked job window
+        if (slotStart < bookingEnd && slotEnd > bookingStart) {
           return false;
         }
       }
