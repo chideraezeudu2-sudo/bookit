@@ -509,7 +509,7 @@ async function handleCancel({ contractor, msg, body, msgLower, t }) {
     upcomingBookings.forEach((b, i) => {
       const slotStr = formatSlot(new Date(b.chosen_slot));
       const customerName = b.leads?.name || 'Unknown';
-      listMsg += `${i + 1}. ${customerName} — ${slotStr}\n`;
+      listMsg += `${i + 1}. ${customerName} - ${slotStr}\n`;
     });
     listMsg += "Reply with the number to cancel.";
     
@@ -546,7 +546,7 @@ async function handleCancel({ contractor, msg, body, msgLower, t }) {
   upcomingBookings.forEach((b, i) => {
     const slotStr = formatSlot(new Date(b.chosen_slot));
     const customerName = b.leads?.name || 'Unknown';
-    listMsg += `${i + 1}. ${customerName} — ${slotStr}\n`;
+    listMsg += `${i + 1}. ${customerName} - ${slotStr}\n`;
   });
   listMsg += "Reply with the number to cancel.";
   
@@ -573,7 +573,7 @@ async function executeCancel({ contractor, booking, t }) {
     await sendSMS({
       to: customerPhone,
       from: contractor.twilio_number,
-      body: `Hi ${customerName}, unfortunately ${assistantName} from ${contractor.business_name} needs to cancel your appointment on ${slotStr}. We're sorry for the inconvenience — please call or text to reschedule.`,
+      body: `Hi ${customerName}, unfortunately ${assistantName} from ${contractor.business_name} needs to cancel your appointment on ${slotStr}. We're sorry for the inconvenience - please call or text to reschedule.`,
       contractorId: contractor.id
     });
   }
@@ -582,7 +582,7 @@ async function executeCancel({ contractor, booking, t }) {
   await sendSMS({
     to: contractor.owner_phone,
     from: contractor.twilio_number,
-    body: `Done — ${customerName}'s booking on ${slotStr} has been cancelled and they've been notified.`,
+    body: `Done - ${customerName}'s booking on ${slotStr} has been cancelled and they've been notified.`,
     contractorId: contractor.id
   });
 
@@ -697,7 +697,7 @@ async function handleConfirmRefund({ contractor, t }) {
   await sendSMS({
     to: contractor.owner_phone,
     from: contractor.twilio_number,
-    body: "Your Bookit subscription has been cancelled and a full refund of $550 has been issued. It may take 5–10 business days to appear on your statement. Thanks for trying Bookit — you can reactivate anytime at bookit.app",
+    body: "Your Bookit subscription has been cancelled and a full refund of $550 has been issued. It may take 5–10 business days to appear on your statement. Thanks for trying Bookit - you can reactivate anytime at bookit.app",
     contractorId: contractor.id
   });
 
@@ -730,7 +730,7 @@ async function checkPendingCancel({ contractor, body }) {
         await sendSMS({
           to: booking.leads.phone,
           from: contractor.twilio_number,
-          body: `Hi ${customerName}, unfortunately ${assistantName} from ${contractor.business_name} needs to cancel your appointment on ${slotStr}. We're sorry for the inconvenience — please call or text to reschedule.`,
+          body: `Hi ${customerName}, unfortunately ${assistantName} from ${contractor.business_name} needs to cancel your appointment on ${slotStr}. We're sorry for the inconvenience - please call or text to reschedule.`,
           contractorId: contractor.id
         });
       }
@@ -739,7 +739,7 @@ async function checkPendingCancel({ contractor, body }) {
       await sendSMS({
         to: contractor.owner_phone,
         from: contractor.twilio_number,
-        body: `Done — ${customerName}'s booking on ${slotStr} has been cancelled and they've been notified.`,
+        body: `Done - ${customerName}'s booking on ${slotStr} has been cancelled and they've been notified.`,
         contractorId: contractor.id
       });
     }
