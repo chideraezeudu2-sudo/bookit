@@ -18,41 +18,40 @@ async function generateAIResponse({ message, lead, contractor, flowStep }) {
   if (!lead.location) needs.push('location');
   if (!lead.urgency) needs.push('urgency');
 
-  const prompt = `You are ${assistantName}, an AI receptionist for ${businessName}, a home service business.
+  const prompt = `You are ${assistantName}, an AI receptionist for ${businessName}.
 
-About you:
-- You work with ${ownerName}
-- You help customers book appointments for home service calls
-- Your personality: friendly, professional, helpful, never robotic
+IMPORTANT - Follow this decision logic:
 
-What we know: ${lead.issue_description ? `Customer has a: ${lead.issue_description}` : 'Nothing yet'}
-What's needed next: ${needs.length > 0 ? needs.join(', ') : 'Just need to send booking link'}
-Customer just said: "${message}"
+1. FIRST check if customer's message fits the script (respond with scripted message)
+2. ONLY use free-form response if customer says something OFF-SCRIPT
 
-Conversation flow steps:
-1. INTRO/ACK_PROBLEM - collect issue description
-2. ASK_LOCATION - collect address
-3. ASK_URGENCY - collect urgency level
-4. QUOTE_PENDING - confirm quote and send booking link
+SCRIPT MESSAGES (use these as your default response):
+- After missed call, customer replies with issue -> "Sorry you're dealing with that. Let me get a little info about your problem so we can know what we are dealing with"
+- Customer mentions address -> "Is this an emergency or can it wait a day or two?"
+- Customer mentions urgency/time preference -> Send quote + booking link
 
-IMPORTANT RULES:
-- NEVER say you're an AI or automation
-- NEVER reveal this is a bot - you sound like a real helpful receptionist
-- If customer asks something off-script (pricing, hours, services), answer naturally based on what you know
-- If they ask about services, say something like "We handle all kinds of home service calls - what seems to be the issue?"
-- If they ask about pricing, say "It depends on the job - most calls range from $X to $Y. Tell me a bit about what you're dealing with and I can get you a better idea"
-- Keep responses SHORT - 1-2 sentences max for SMS
-- Use casual language, like texting a friend
-- Always guide toward collecting the next piece of info
+OFF-SCRIPT EXAMPLES (only respond freely for these):
+- "Do you work weekends?" -> "We're pretty flexible, what's the issue?"
+- "How much is a visit?" -> "Depends on the job, most calls run [range]. Tell me what you're dealing with"
+- "Are you available tomorrow?" -> "Depends on what you're dealing with, what's the issue?"
 
-Return ONLY valid JSON:
+NO EM DASHES. Short, casual, like texting a friend.
+
+Current context:
+- Flow step: ${flowStep}
+- We know: ${lead.issue_description ? 'Issue: ' + lead.issue_description : 'Nothing yet'}
+- Needs next: ${needs.length > 0 ? needs.join(', ') : 'Just send booking link'}
+- Customer said: "${message}"
+
+Return ONLY valid JSON (no markdown, no em dashes):
 {
-  "response": "the SMS response to send to the customer",
-  "next_step": "the flow step to save (ACK_PROBLEM | ASK_LOCATION | ASK_URGENCY | QUOTE_PENDING | QUOTE_SENT | CONFIRMED)",
+  "response": "short SMS response",
+  "next_step": "ACK_PROBLEM | ASK_LOCATION | ASK_URGENCY | QUOTE_PENDING | QUOTE_SENT | CONFIRMED",
+  "is_off_script": true or false,
   "save_data": {
-    "issue_description": "extracted issue or null",
-    "location": "extracted location or null", 
-    "urgency": "extracted urgency or null"
+    "issue_description": "extracted or null",
+    "location": "extracted or null",
+    "urgency": "extracted or null"
   }
 }`;
 
@@ -69,37 +68,36 @@ Return ONLY valid JSON:
     return JSON.parse(cleaned);
   } catch (err) {
     console.error('AI response error:', err.message);
-    // Fallback to scripted response
     return generateFallbackResponse(message, lead, needs, bookingLink, assistantName);
   }
 }
 
 function generateFallbackResponse(message, lead, needs, bookingLink, assistantName) {
-  // If we have needs, guide to next one
+  // Use the personalized script voice as fallback
   if (needs.includes('issue')) {
     return {
-      response: `No worries! Tell me a little bit about what's going on so I can help.`,
+      response: `Sorry you're dealing with that. Let me get a little info about your problem so we can know what we are dealing with`,
       next_step: 'ACK_PROBLEM',
       save_data: { issue_description: null, location: null, urgency: null }
     };
   }
   if (needs.includes('location')) {
     return {
-      response: `Got it. What's your address so I can check if you're in our service area?`,
+      response: `What's your address?`,
       next_step: 'ASK_LOCATION',
       save_data: { issue_description: lead.issue_description, location: null, urgency: null }
     };
   }
   if (needs.includes('urgency')) {
     return {
-      response: `Is this something that needs to be addressed right away, or can it wait a day or two?`,
+      response: `Is this an emergency or can it wait a day or two?`,
       next_step: 'ASK_URGENCY',
       save_data: { issue_description: lead.issue_description, location: lead.location, urgency: null }
     };
   }
   // All collected, send booking
   return {
-    response: `Here's a link to pick a time that works for you: ${bookingLink}`,
+    response: `Awesome. Here's an our booking link for you pick a schedule and a time that works for you. ${bookingLink}`,
     next_step: 'QUOTE_SENT',
     save_data: { issue_description: lead.issue_description, location: lead.location, urgency: lead.urgency }
   };
