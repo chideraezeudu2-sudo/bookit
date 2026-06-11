@@ -51,6 +51,15 @@ function getTemplates() {
     newBooking: (customerName, customerPhone, issue, slot) =>
       `NEW BOOKING\n\nCustomer: ${customerName || customerPhone}\nPhone: ${customerPhone}\nIssue: ${issue}\nTime: ${slot}\n\nReply DONE when the job is complete.`,
 
+    quoteOverrideConfirm: (amount, bookingLink) =>
+      `Got it, you're looking at $${amount} all in. Want to lock in a time? ${bookingLink}`,
+
+    quoteSent: (amount, bookingLink) =>
+      `Here's your quote: $${amount}. Want to book? ${bookingLink}`,
+
+    newSlotsOffer: (slot1, slot2, slot3) =>
+      `Hey, we have availability! Pick a time that works for you:\n\n1. ${slot1}\n2. ${slot2}\n3. ${slot3}\n\nReply with the number or time to book.`,
+
     timeBlocked: (start, end) =>
       `Got it, blocked off ${start} to ${end}. No bookings will go in during that time 👍`,
 
