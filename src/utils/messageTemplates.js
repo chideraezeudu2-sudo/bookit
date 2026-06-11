@@ -1,7 +1,7 @@
 function getTemplates() {
   return {
-    missedCall: (assistantName, bizName) =>
-      `Hey, this is ${assistantName} from ${bizName}. Sorry we missed your call. What's going on? Just tell me a little about what you need help with.`,
+    missedCall: (assistantName, ownerName) =>
+      `Hey this is ${assistantName} I work with ${ownerName} sorry we missed your call what's your problem you need fixed`,
 
     askLocation: () =>
       `What's your address?`,

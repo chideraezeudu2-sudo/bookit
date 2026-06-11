@@ -93,15 +93,16 @@ async function routeLeadStep({ contractor, lead, body, from, to }) {
 
   switch (lead.flow_step) {
     case 'INTRO': {
+      // First time customer texts - send missed call message
+      // Update flow so next reply goes to ACK_PROBLEM
       await supabase.from('leads').update({
-        issue_description: body,
         flow_step: 'ACK_PROBLEM'
       }).eq('id', lead.id);
 
       await sendSMS({
         to: from,
         from: to,
-        body: t.ackProblem(),
+        body: t.missedCall(contractor.assistant_name || 'Sarah', contractor.owner_name || 'the team'),
         contractorId: contractor.id,
         leadId: lead.id
       });
@@ -109,14 +110,16 @@ async function routeLeadStep({ contractor, lead, body, from, to }) {
     }
 
     case 'ACK_PROBLEM': {
+      // Customer replied to missed call - save their issue and send ackProblem
       await supabase.from('leads').update({
+        issue_description: body,
         flow_step: 'ASK_LOCATION'
       }).eq('id', lead.id);
 
       await sendSMS({
         to: from,
         from: to,
-        body: t.askLocation(),
+        body: t.ackProblem(),
         contractorId: contractor.id,
         leadId: lead.id
       });
