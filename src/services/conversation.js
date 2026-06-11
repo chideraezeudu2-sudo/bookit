@@ -1,9 +1,8 @@
 const supabase = require('../db/supabase');
 const { sendSMS } = require('./sms');
-const { interpretLeadMessage, interpretContractorCommand, generateAIResponse } = require('./groq');
+const { interpretContractorCommand } = require('./groq');
 const { getTemplates } = require('../utils/messageTemplates');
 const { generateAutoQuote } = require('./autoQuote');
-const { formatSlot } = require('./booking');
 
 async function handleInbound({ from, to, body }) {
   console.log(`📨 SMS RECEIVED — From: ${from}, To: ${to}, Body: "${body}"`);
@@ -89,133 +88,134 @@ async function handleInbound({ from, to, body }) {
 }
 
 async function routeLeadStep({ contractor, lead, body, from, to }) {
-  console.log(`🧠 Using AI brain for step: ${lead.flow_step}`);
-  
+  const t = getTemplates();
+  const bookingLink = `${process.env.BASE_URL}/book/${contractor.booking_slug}`;
+
   // Special case: INTRO just sends missed call message
   if (lead.flow_step === 'INTRO') {
-    const t = getTemplates();
     await supabase.from('leads').update({ flow_step: 'ACK_PROBLEM' }).eq('id', lead.id);
     await sendSMS({
       to: from,
       from: to,
-      body: t.missedCall(contractor.assistant_name || 'Sarah', contractor.owner_name || 'the team'),
+      body: t.missedCall(contractor.assistant_name || 'Sarah', contractor.business_name),
       contractorId: contractor.id,
       leadId: lead.id
     });
     return;
   }
 
-  // Use AI brain for all other steps
-  const aiResult = await generateAIResponse({
-    message: body,
-    lead,
-    contractor,
-    flowStep: lead.flow_step
-  });
-
-  console.log(`🧠 AI response: "${aiResult.response}"`);
-  console.log(`🧠 Next step: ${aiResult.next_step}`);
-
-  // Build update object with extracted data
-  const updateData = {
-    flow_step: aiResult.next_step,
-    last_message_at: new Date()
-  };
-  
-  if (aiResult.save_data) {
-    if (aiResult.save_data.issue_description) {
-      updateData.issue_description = aiResult.save_data.issue_description;
-    }
-    if (aiResult.save_data.location) {
-      updateData.location = aiResult.save_data.location;
-    }
-    if (aiResult.save_data.urgency) {
-      updateData.urgency = aiResult.save_data.urgency;
-    }
-  }
-
-  await supabase.from('leads').update(updateData).eq('id', lead.id);
-
-  // Send AI's response
-  await sendSMS({
-    to: from,
-    from: to,
-    body: aiResult.response,
-    contractorId: contractor.id,
-    leadId: lead.id
-  });
-
-  // If we just collected urgency and moved to QUOTE_PENDING, generate the quote
-  if (aiResult.next_step === 'QUOTE_PENDING' || aiResult.next_step === 'QUOTE_SENT') {
-    await handleQuotePending({ contractor, lead: { ...lead, ...updateData }, to });
-  }
-
-  // If AI moved to CONFIRMED, send confirmation
-  if (aiResult.next_step === 'CONFIRMED') {
-    const t = getTemplates();
-    const slotStr = lead.booking_scheduled_at ? formatSlot(new Date(lead.booking_scheduled_at)) : 'your scheduled time';
+  // Handle ACK_PROBLEM step (customer gave issue)
+  if (lead.flow_step === 'ACK_PROBLEM') {
+    await supabase.from('leads').update({
+      issue_description: body,
+      flow_step: 'ASK_LOCATION'
+    }).eq('id', lead.id);
     await sendSMS({
       to: from,
       from: to,
-      body: t.bookingConfirmed(slotStr, contractor.business_name),
+      body: t.askLocation(),
       contractorId: contractor.id,
       leadId: lead.id
     });
+    return;
   }
-}
 
-async function handleQuotePending({ contractor, lead, to }) {
-  const t = getTemplates();
-  
-  // Generate auto quote using AI
-  console.log('💰 Generating auto quote...');
-  const quote = await generateAutoQuote({
-    issueDescription: lead.issue_description || 'Service call',
-    location: lead.location || 'Local area',
-    contractor
-  });
+  // Handle ASK_LOCATION step (customer gave address)
+  if (lead.flow_step === 'ASK_LOCATION') {
+    await supabase.from('leads').update({
+      location: body,
+      flow_step: 'ASK_URGENCY'
+    }).eq('id', lead.id);
+    await sendSMS({
+      to: from,
+      from: to,
+      body: t.askUrgency(),
+      contractorId: contractor.id,
+      leadId: lead.id
+    });
+    return;
+  }
 
-  console.log(`💰 Quote generated: $${quote.total_low}-${quote.total_high}`);
+  // Handle ASK_URGENCY step - generate quote and send quoteAndBook message
+  if (lead.flow_step === 'ASK_URGENCY') {
+    await supabase.from('leads').update({
+      urgency: body,
+      flow_step: 'QUOTE_SENT'
+    }).eq('id', lead.id);
 
-  // Save quote to lead
-  const quoteAmount = `$${quote.total_low}-${quote.total_high}`;
-  await supabase.from('leads').update({
-    quote_amount: quoteAmount,
-    quote_sent_at: new Date(),
-    flow_step: 'QUOTE_SENT'
-  }).eq('id', lead.id);
+    // Generate auto quote using AI
+    const quote = await generateAutoQuote({
+      issueDescription: lead.issue_description || 'Service call',
+      location: lead.location || 'Local area',
+      contractor
+    });
 
-  // Send rough quote to customer
-  await sendSMS({
-    to: lead.phone,
-    from: to,
-    body: t.roughQuote(quote.total_low, quote.total_high),
-    contractorId: contractor.id,
-    leadId: lead.id
-  });
+    const quoteAmount = `$${quote.total_low}-${quote.total_high}`;
+    await supabase.from('leads').update({
+      quote_amount: quoteAmount,
+      quote_sent_at: new Date()
+    }).eq('id', lead.id);
 
-  // Notify contractor about new lead
-  await sendSMS({
-    to: contractor.owner_phone,
-    from: to,
-    body: t.leadReady(
-      lead.issue_description,
-      lead.location,
-      lead.urgency,
-      quote.total_low,
-      quote.total_high
-    ),
-    contractorId: contractor.id,
-    leadId: lead.id
-  });
+    // Send quote and booking link to customer
+    await sendSMS({
+      to: from,
+      from: to,
+      body: t.quoteAndBook(quote.total_low, quote.total_high, bookingLink),
+      contractorId: contractor.id,
+      leadId: lead.id
+    });
 
-  // Schedule follow-ups
-  const now = new Date();
-  await supabase.from('scheduled_jobs').insert([
-    { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 24 * 60 * 60 * 1000) },
-    { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000) },
-    { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) },
-  ]);
+    // Notify contractor about new lead
+    await sendSMS({
+      to: contractor.owner_phone,
+      from: to,
+      body: t.leadReady(
+        lead.issue_description,
+        lead.location,
+        body,
+        quote.total_low,
+        quote.total_high
+      ),
+      contractorId: contractor.id,
+      leadId: lead.id
+    });
+
+    // Schedule follow-ups
+    const now = new Date();
+    await supabase.from('scheduled_jobs').insert([
+      { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 24 * 60 * 60 * 1000) },
+      { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000) },
+      { job_type: 'quote_followup', lead_id: lead.id, contractor_id: contractor.id, scheduled_for: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) },
+    ]);
+    return;
+  }
+
+  // QUOTE_SENT - send booking link again
+  if (lead.flow_step === 'QUOTE_SENT') {
+    const quoteMatch = lead.quote_amount?.match(/\$(\d+)-?(\d+)?/);
+    const low = quoteMatch ? parseInt(quoteMatch[1]) : 150;
+    const high = quoteMatch ? (quoteMatch[2] ? parseInt(quoteMatch[2]) : low * 3) : 450;
+    await sendSMS({
+      to: from,
+      from: to,
+      body: t.quoteAndBook(low, high, bookingLink),
+      contractorId: contractor.id,
+      leadId: lead.id
+    });
+    return;
+  }
+
+  // CONFIRMED - already booked
+  if (lead.flow_step === 'CONFIRMED') {
+    await sendSMS({
+      to: from,
+      from: to,
+      body: `Hey you're already booked in. We'll see you at your scheduled time. Reply CANCEL if you need to reschedule.`,
+      contractorId: contractor.id,
+      leadId: lead.id
+    });
+    return;
+  }
 }
 
 async function handleContractorMessage({ contractor, body, to }) {
@@ -302,7 +302,7 @@ async function handleQuoteReply({ contractor, body, to, t }) {
   await sendSMS({
     to: lead.phone,
     from: to,
-    body: `Hey just to confirm, you're looking at ${finalAmount} all in for that job. Want to lock in a time? ${bookingLink}`,
+    body: t.quoteOverrideConfirm(finalAmount, bookingLink),
     contractorId: contractor.id,
     leadId: lead.id
   });

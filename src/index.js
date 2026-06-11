@@ -1,5 +1,6 @@
 require('dotenv').config();
-require('./utils/monitor');
+const { setupErrorHandlers } = require('./utils/monitor');
+setupErrorHandlers();
 
 const express = require('express');
 const cors = require('cors');

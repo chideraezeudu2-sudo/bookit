@@ -3,6 +3,7 @@ const supabase = require('../db/supabase');
 const { sendSMS } = require('./sms');
 const { getTemplates } = require('../utils/messageTemplates');
 const { formatSlot } = require('./booking');
+const { alertOwner } = require('../utils/monitor');
 
 function startScheduler() {
   cron.schedule('*/5 * * * *', async () => {
@@ -24,7 +25,11 @@ function startScheduler() {
           await processJob(job);
           await supabase.from('scheduled_jobs').update({ executed: true, executed_at: new Date().toISOString() }).eq('id', job.id);
         } catch (err) {
-          console.error('Job', job.id, 'failed:', err.message);
+          console.error(`Scheduler job ${job.id} failed: ${err.message}`);
+          alertOwner(
+            `Scheduler job failed: ${err.message}`,
+            `Job type: ${job.job_type}, Job ID: ${job.id}`
+          );
         }
       }
     } catch (err) {
@@ -66,11 +71,13 @@ async function processJob(job) {
   }
 
   if (job.job_type === 'booking_reminder' && booking?.chosen_slot) {
-    const slotStr = formatSlot(new Date(booking.chosen_slot));
+    const slotDate = new Date(booking.chosen_slot);
+    const dayStr = slotDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    const timeStr = slotDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     await sendSMS({
       to: lead.phone,
       from: contractor.twilio_number,
-      body: t.bookingReminder(slotStr),
+      body: t.bookingReminder(contractor.business_name, timeStr),
       contractorId: contractor.id,
       leadId: lead.id
     });

@@ -1,4 +1,5 @@
 const supabase = require('../db/supabase');
+const { alertOwner } = require('../utils/monitor');
 require('dotenv').config();
 
 let client = null;
@@ -49,6 +50,13 @@ async function sendSMS({ to, from, body, contractorId, leadId }) {
     return message;
   } catch (err) {
     console.error('SMS send error:', err.message);
+
+    // Only alert for non-trial-limit errors since those are expected during testing
+    if (!err.message.includes('exceeded the 50 daily messages limit') &&
+        !err.message.includes('unverified')) {
+      alertOwner(`SMS send failed to ${to}: ${err.message}`, `Body: ${body.slice(0, 100)}`);
+    }
+
     throw err;
   }
 }
