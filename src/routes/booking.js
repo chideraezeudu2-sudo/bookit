@@ -20,8 +20,7 @@ router.get('/:slug', async (req, res) => {
       .select('id, business_name, service_type, working_days, start_time, end_time, message_style')
       .eq('id', slug)
       .eq('is_active', true)
-      .single()
-      .catch(() => ({ data: null }));
+      .maybeSingle();
 
     // If not found, try by booking_slug
     if (!contractor) {
@@ -30,8 +29,7 @@ router.get('/:slug', async (req, res) => {
         .select('id, business_name, service_type, working_days, start_time, end_time, message_style')
         .eq('booking_slug', slug)
         .eq('is_active', true)
-        .single()
-        .catch(() => ({ data: null }));
+        .maybeSingle();
       contractor = bySlug;
     }
 
@@ -86,8 +84,7 @@ router.get('/:slug/slots', async (req, res) => {
       .select('*')
       .eq('id', slug)
       .eq('is_active', true)
-      .single()
-      .catch(() => ({ data: null }));
+      .maybeSingle();
 
     // If not found, try by booking_slug
     if (!contractor) {
@@ -96,8 +93,7 @@ router.get('/:slug/slots', async (req, res) => {
         .select('*')
         .eq('booking_slug', slug)
         .eq('is_active', true)
-        .single()
-        .catch(() => ({ data: null }));
+        .maybeSingle();
       contractor = bySlug;
     }
 
@@ -147,8 +143,7 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
       .select('*')
       .eq('id', slug)
       .eq('is_active', true)
-      .single()
-      .catch(() => ({ data: null }));
+      .maybeSingle();
 
     // If not found, try by booking_slug
     if (!contractor) {
@@ -157,8 +152,7 @@ router.post('/:slug/confirm', express.json(), async (req, res) => {
         .select('*')
         .eq('booking_slug', slug)
         .eq('is_active', true)
-        .single()
-        .catch(() => ({ data: null }));
+        .maybeSingle();
       contractor = bySlug;
     }
 
