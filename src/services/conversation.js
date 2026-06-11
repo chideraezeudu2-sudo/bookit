@@ -101,7 +101,7 @@ async function routeLeadStep({ contractor, lead, body, from, to }) {
     await sendSMS({
       to: from,
       from: to,
-      body: t.missedCall(contractor.assistant_name || 'Sarah', contractor.business_name),
+      body: t.missedCall(contractor.assistant_name || 'Sarah', contractor.owner_name || 'the team'),
       contractorId: contractor.id,
       leadId: lead.id
     });
@@ -164,7 +164,7 @@ async function routeLeadStep({ contractor, lead, body, from, to }) {
     await sendSMS({
       to: from,
       from: to,
-      body: t.quoteAndBook(quote.total_low, quote.total_high, bookingLink),
+      body: t.quoteAndBook(quoteAmount, bookingLink, contractor.owner_name || 'the team'),
       contractorId: contractor.id,
       leadId: lead.id
     });
@@ -196,13 +196,10 @@ async function routeLeadStep({ contractor, lead, body, from, to }) {
 
   // QUOTE_SENT - send booking link again
   if (lead.flow_step === 'QUOTE_SENT') {
-    const quoteMatch = lead.quote_amount?.match(/\$(\d+)-?(\d+)?/);
-    const low = quoteMatch ? parseInt(quoteMatch[1]) : 150;
-    const high = quoteMatch ? (quoteMatch[2] ? parseInt(quoteMatch[2]) : low * 3) : 450;
     await sendSMS({
       to: from,
       from: to,
-      body: t.quoteAndBook(low, high, bookingLink),
+      body: t.quoteAndBook(lead.quote_amount || '$150-$450', bookingLink, contractor.owner_name || 'the team'),
       contractorId: contractor.id,
       leadId: lead.id
     });
